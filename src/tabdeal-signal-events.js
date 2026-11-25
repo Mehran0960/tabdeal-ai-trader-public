@@ -218,6 +218,11 @@ export function parseTabdealSignalPageHtml(html, {nowMs = Date.now()} = {}) {
   const sourceAgeMs = nowMs - prerenderedAtMs;
   const capturedAt = new Date(nowMs).toISOString();
   const sourceRenderedAt = new Date(prerenderedAtMs).toISOString();
+  const sourceFreshness = sourceAgeMs < 0
+    ? "future_render_timestamp"
+    : sourceAgeMs <= FRESH_SOURCE_AGE_MS ? "fresh_under_5m"
+    : sourceAgeMs <= STALE_SOURCE_AGE_MS ? "delayed_5m_to_60m"
+    : "stale_over_60m";
   const snapshotId = createHash("sha256")
     .update(JSON.stringify({sourceRenderedAt, events, totalEventCount, sourceFreshness}))
     .digest("hex");
@@ -229,11 +234,7 @@ export function parseTabdealSignalPageHtml(html, {nowMs = Date.now()} = {}) {
     capturedAt,
     sourceRenderedAt,
     sourceAgeMs,
-    sourceFreshness: sourceAgeMs < 0
-      ? "future_render_timestamp"
-      : sourceAgeMs <= FRESH_SOURCE_AGE_MS ? "fresh_under_5m"
-      : sourceAgeMs <= STALE_SOURCE_AGE_MS ? "delayed_5m_to_60m"
-      : "stale_over_60m",
+    sourceFreshness,
     pagination: {
       totalEventCount,
       numberOfPages,
