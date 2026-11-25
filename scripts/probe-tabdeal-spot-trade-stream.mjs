@@ -54,6 +54,7 @@ export async function probeTabdealSpotTradeStreams({
     topic,
     id: index + 1,
     acknowledged: false,
+    subscriptionResponseSummary: null,
     messages: 0,
     malformedMessages: 0,
     ignoredMessages: 0,
@@ -101,6 +102,7 @@ export async function probeTabdealSpotTradeStreams({
         return {
           topic: row.topic,
           acknowledged: row.acknowledged,
+          subscriptionResponseSummary: row.subscriptionResponseSummary,
           messageCount: messages,
           malformedMessages: row.malformedMessages,
           ignoredMessages: row.ignoredMessages,
@@ -201,15 +203,36 @@ export async function probeTabdealSpotTradeStreams({
 
       if (Number.isSafeInteger(parsed.id) && topicById.has(parsed.id)) {
         const row = topicById.get(parsed.id);
-        if (parsed.error) {
-          errors.push({
-            topic: row.topic,
-            code: Number.isFinite(Number(parsed.error.code)) ? Number(parsed.error.code) : null,
-            message: String(parsed.error.msg || parsed.error.message || "subscription_rejected").slice(0, 160)
-          });
+        if (parsed.error && typeof parsed.error === "object") {
+          const errorCode = Number(parsed.error.code);
+          const errorMessage = String(parsed.error.msg || parsed.error.message || "subscription_rejected").slice(0, 160);
+          row.subscriptionResponseSummary = {
+            kind: "error",
+            responseKeys: Object.keys(parsed).sort(),
+            errorKeys: Object.keys(parsed.error).sort(),
+            code: Number.isFinite(errorCode) ? errorCode : null,
+            message: errorMessage
+          };
+          errors.push({topic: row.topic, code: row.subscriptionResponseSummary.code, message: errorMessage});
         } else if (parsed.result === null) {
           row.acknowledged = true;
+          row.subscriptionResponseSummary = {kind: "null_acknowledgement", responseKeys: Object.keys(parsed).sort()};
         } else {
+          const result = parsed.result;
+          const summary = {
+            kind: "non_null_result",
+            responseKeys: Object.keys(parsed).sort(),
+            resultType: Array.isArray(result) ? "array" : typeof result
+          };
+          if (typeof result === "string" || typeof result === "number" || typeof result === "boolean") {
+            summary.resultValue = String(result).slice(0, 120);
+          } else if (Array.isArray(result)) {
+            summary.resultLength = result.length;
+            summary.resultItemTypes = [...new Set(result.slice(0, 10).map(value => Array.isArray(value) ? "array" : value === null ? "null" : typeof value))];
+          } else if (result && typeof result === "object") {
+            summary.resultKeys = Object.keys(result).sort().slice(0, 30);
+          }
+          row.subscriptionResponseSummary = summary;
           row.ignoredMessages++;
         }
         return;
