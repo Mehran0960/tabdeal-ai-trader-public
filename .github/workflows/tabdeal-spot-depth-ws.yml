@@ -1,6 +1,12 @@
 name: Tabdeal Public Spot Depth Stream
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/tabdeal-spot-depth-ws.mjs"
+      - "scripts/append-tabdeal-spot-depth-history.mjs"
+      - ".github/workflows/tabdeal-spot-depth-ws.yml"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
