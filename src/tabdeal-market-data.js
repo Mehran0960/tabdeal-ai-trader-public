@@ -9,6 +9,7 @@ export const TABDEAL_PUBLIC_RESEARCH_SYMBOLS = Object.freeze([
 ]);
 
 export const TABDEAL_PUBLIC_TRADE_LIMIT = 1000;
+export const TABDEAL_TRADE_FRESHNESS_DIAGNOSTIC_MS = 60_000;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -348,7 +349,21 @@ export async function runTabdealPublicMarketScout({
 
   const generatedAt = new Date(clock()).toISOString();
   const validBookCount = snapshots.filter(row => row.orderbook.status === "ok").length;
-  const validTradeCount = snapshots.filter(row => row.trades.status === "ok").length;
+  const validTradeRows = snapshots.filter(row => row.trades.status === "ok");
+  const validTradeCount = validTradeRows.length;
+  const tradeSnapshotsWithin60s = validTradeRows.filter(row =>
+    Number.isSafeInteger(row.trades.newestTradeAgeMs) &&
+    row.trades.newestTradeAgeMs >= 0 &&
+    row.trades.newestTradeAgeMs <= TABDEAL_TRADE_FRESHNESS_DIAGNOSTIC_MS
+  ).length;
+  const tradeSnapshotsOlderThan60s = validTradeRows.filter(row =>
+    Number.isSafeInteger(row.trades.newestTradeAgeMs) &&
+    row.trades.newestTradeAgeMs > TABDEAL_TRADE_FRESHNESS_DIAGNOSTIC_MS
+  ).length;
+  const tradeSnapshotsWithFutureTimestamp = validTradeRows.filter(row =>
+    Number.isSafeInteger(row.trades.newestTradeAgeMs) &&
+    row.trades.newestTradeAgeMs < 0
+  ).length;
   if (!snapshots.length && !rejected.length) errors.push("no_symbols_processed");
 
   return {
@@ -365,6 +380,10 @@ export async function runTabdealPublicMarketScout({
       symbolsProcessed: snapshots.length,
       validOrderbooks: validBookCount,
       validTradeSnapshots: validTradeCount,
+      tradeSnapshotsWithin60s,
+      tradeSnapshotsOlderThan60s,
+      tradeSnapshotsWithFutureTimestamp,
+      tradeFreshnessDiagnosticThresholdMs: TABDEAL_TRADE_FRESHNESS_DIAGNOSTIC_MS,
       cappedTradePages: snapshots.filter(row => row.trades.pageCapped === true).length,
       symbolsWithBookErrors: snapshots.filter(row => row.orderbook.status !== "ok").map(row => row.symbol),
       symbolsWithTradeErrors: snapshots.filter(row => !["ok", "empty"].includes(row.trades.status)).map(row => row.symbol)
@@ -377,7 +396,7 @@ export async function runTabdealPublicMarketScout({
       uncappedTrades: "an uncapped recent response is a snapshot only; pagination completeness is not assumed",
       priceUnits: "IRT remains IRT_UNVERIFIED; USDT remains USDT; no conversion or cross-quote joins",
       candleGeneration: "disabled; no OHLC candles are fabricated from a recent-trades page",
-      freshness: "capture time is client-side; depth update ID is not an exchange timestamp"
+      freshness: "newest trade age is measured against the client-side capture time; <=60s is only a monitoring diagnostic, not a trading-signal or execution-eligibility rule; depth update ID is not an exchange timestamp"
     },
     safety: {
       publicEndpointsOnly: true,
