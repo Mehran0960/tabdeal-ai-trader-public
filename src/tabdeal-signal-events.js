@@ -219,7 +219,7 @@ export function parseTabdealSignalPageHtml(html, {nowMs = Date.now()} = {}) {
   const capturedAt = new Date(nowMs).toISOString();
   const sourceRenderedAt = new Date(prerenderedAtMs).toISOString();
   const snapshotId = createHash("sha256")
-    .update(JSON.stringify({sourceRenderedAt, events, totalEventCount}))
+    .update(JSON.stringify({sourceRenderedAt, events, totalEventCount, sourceFreshness}))
     .digest("hex");
 
   return {
