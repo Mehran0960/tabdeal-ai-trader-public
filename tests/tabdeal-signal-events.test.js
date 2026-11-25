@@ -49,6 +49,7 @@ test("parses only public market event rows from the Nuxt payload", () => {
   const now = 1_800_000_060_000;
   const report = parseTabdealSignalPageHtml(makeHtml({renderedAt: now - 10_000}), {nowMs: now});
   assert.equal(report.provider, "TABDEAL_SIGNAL_PAGE");
+  assert.equal(report.sourceFreshness, "fresh_under_5m");
   assert.equal(report.pagination.totalEventCount, 1);
   assert.equal(report.pagination.rowsReturned, 1);
   assert.equal(report.pagination.allPagesCaptured, true);
@@ -99,4 +100,12 @@ test("fetches the public signal page using GET only and no credentials", async (
   assert.equal(calls.length, 1);
   assert.equal(calls[0].method, "GET");
   assert.equal(Object.keys(calls[0].headers).some(key => /authorization|api-key|api-secret/i.test(key)), false);
+});
+
+test("classifies delayed and stale server-rendered signals separately", () => {
+  const now = 1_800_000_060_000;
+  const delayed = parseTabdealSignalPageHtml(makeHtml({renderedAt: now - 30 * 60_000}), {nowMs: now});
+  const stale = parseTabdealSignalPageHtml(makeHtml({renderedAt: now - 10 * 60 * 60_000}), {nowMs: now});
+  assert.equal(delayed.sourceFreshness, "delayed_5m_to_60m");
+  assert.equal(stale.sourceFreshness, "stale_over_60m");
 });
