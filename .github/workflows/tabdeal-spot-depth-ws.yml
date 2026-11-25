@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: tabdeal-public-spot-depth
+  group: tabdeal-public-history-write
   cancel-in-progress: false
 
 jobs:
