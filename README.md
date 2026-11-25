@@ -1,0 +1,48 @@
+# Tabdeal AI Trader — Public Research Core
+
+This repository is the sanitized, public research companion to a separate private operations repository.
+
+## Scope
+
+- Read-only access to Tabdeal public Spot market endpoints.
+- Market-structure summaries (order book and recent-trade snapshots).
+- Research and risk-analysis functions.
+- Backtest helpers and a paper-simulation engine.
+- Automated syntax checks and tests on GitHub Actions.
+
+**This repository does not contain an authenticated account client or a live order executor.** It cannot read balances, place/cancel orders, withdraw, transfer funds, or enable live trading. The scanner uses public GET endpoints only and requires no API key.
+
+## Important data limitations
+
+- The current public trades endpoint is queried as a single recent page (up to 1,000 records). A capped page is flagged as potentially truncated; an uncapped page is still not assumed to be complete history.
+- Recent trades and a single order-book snapshot are not a validated candle history. The scanner does not fabricate OHLC candles from them.
+- IRT quote-unit and settlement semantics remain unverified. The code keeps IRT marked as `IRT_UNVERIFIED`; it must not be silently treated as RIAL or TOMAN.
+- No strategy in this project is currently certified profitable. Paper/backtest results are hypotheses, not a promise of future returns.
+
+## Run locally
+
+Requires Node.js 22 or later. No third-party npm dependencies are required.
+
+```bash
+npm run check
+npm test
+npm run market:scan
+```
+
+The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. That directory is ignored by Git.
+
+## Research and execution gates
+
+Do not treat a strategy as eligible for real-money use until it has:
+1. Timestamped, sufficiently complete market history with duplicate/gap/out-of-order controls.
+2. Verified quote units, exchange fees, minimum order sizes, and execution constraints.
+3. Pre-registered strategy rules and an untouched out-of-sample holdout.
+4. Walk-forward and multiple-testing controls, with realistic fees, spread, slippage, partial fills, and latency.
+5. A sustained forward paper record with independent reconciliation and drawdown/kill-switch tests.
+6. A separately audited fail-closed execution adapter and explicit owner approval for any capped live pilot.
+
+The preferred result may be **no trade**. No return is guaranteed.
+
+## Public/private separation
+
+Never place API keys, account data, private logs, Cloudflare account identifiers, database IDs, Worker URLs, or personal contact details in this repository. The private operations repository remains the canonical location for credentials and infrastructure-specific configuration.
