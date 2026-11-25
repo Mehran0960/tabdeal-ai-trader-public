@@ -4,7 +4,8 @@ export const TABDEAL_SIGNAL_PAGE_URL = "https://tabdeal.org/crypto-price/signal"
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const MAX_GRAPH_NODES = 100_000;
 const MAX_EVENTS = 500;
-const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
+const FRESH_SOURCE_AGE_MS = 5 * 60 * 1000;
+const STALE_SOURCE_AGE_MS = 60 * 60 * 1000;
 const WRAPPER_TAGS = new Set([
   "ShallowReactive", "Reactive", "Ref", "ShallowRef", "ComputedRef",
   "ReadonlyRef", "ReadonlyReactive"
@@ -217,7 +218,6 @@ export function parseTabdealSignalPageHtml(html, {nowMs = Date.now()} = {}) {
   const sourceAgeMs = nowMs - prerenderedAtMs;
   const capturedAt = new Date(nowMs).toISOString();
   const sourceRenderedAt = new Date(prerenderedAtMs).toISOString();
-  const eventKeys = events.map(event => event.eventKey).sort();
   const snapshotId = createHash("sha256")
     .update(JSON.stringify({sourceRenderedAt, events, totalEventCount}))
     .digest("hex");
@@ -231,7 +231,9 @@ export function parseTabdealSignalPageHtml(html, {nowMs = Date.now()} = {}) {
     sourceAgeMs,
     sourceFreshness: sourceAgeMs < 0
       ? "future_render_timestamp"
-      : sourceAgeMs <= MAX_SOURCE_AGE_MS ? "within_24h" : "stale_over_24h",
+      : sourceAgeMs <= FRESH_SOURCE_AGE_MS ? "fresh_under_5m"
+      : sourceAgeMs <= STALE_SOURCE_AGE_MS ? "delayed_5m_to_60m"
+      : "stale_over_60m",
     pagination: {
       totalEventCount,
       numberOfPages,
