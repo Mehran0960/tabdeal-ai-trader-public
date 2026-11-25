@@ -1,6 +1,13 @@
 name: Tabdeal Public Signal Capture
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "src/tabdeal-signal-events.js"
+      - "scripts/tabdeal-signal-capture.mjs"
+      - "scripts/append-tabdeal-signal-history.mjs"
+      - ".github/workflows/tabdeal-signal-capture.yml"
   schedule:
     - cron: "23 * * * *"
   workflow_dispatch:
