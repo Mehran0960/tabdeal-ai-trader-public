@@ -71,10 +71,10 @@ function decodeNuxtGraph(graph) {
           if (!Number.isFinite(date.getTime())) throw new Error("tabdeal_signal_nuxt_date_invalid");
           result = date.toISOString();
         } else if (tag === "Set") {
-          const values = dereference(node[1], depth);
+          const values = node.length > 1 ? dereference(node[1], depth) : [];
           result = new Set(Array.isArray(values) ? values : []);
         } else if (tag === "Map") {
-          const values = dereference(node[1], depth);
+          const values = node.length > 1 ? dereference(node[1], depth) : [];
           result = new Map(Array.isArray(values) ? values : []);
         } else if (tag === "BigInt") {
           result = BigInt(dereference(node[1], depth));
@@ -112,7 +112,32 @@ function decodeNuxtGraph(graph) {
     return result;
   }
 
-  return decodeIndex(1);
+  function unwrapIndex(index) {
+    for (let depth = 0; depth < 10; depth++) {
+      if (!Number.isSafeInteger(index) || index < 0 || index >= graph.length) {
+        throw new Error("tabdeal_signal_nuxt_reference_invalid");
+      }
+      const node = graph[index];
+      if (Array.isArray(node) && typeof node[0] === "string" && WRAPPER_TAGS.has(node[0])) {
+        if (node.length !== 2) throw new Error("tabdeal_signal_nuxt_wrapper_invalid");
+        index = node[1];
+        continue;
+      }
+      return index;
+    }
+    throw new Error("tabdeal_signal_nuxt_wrapper_depth_exceeded");
+  }
+
+  const rootNode = graph[1];
+  if (!isRecord(rootNode)) throw new Error("tabdeal_signal_nuxt_root_invalid");
+  const prerenderedAt = decodeIndex(rootNode.prerenderedAt);
+  const dataNode = graph[unwrapIndex(rootNode.data)];
+  if (!isRecord(dataNode)) throw new Error("tabdeal_signal_nuxt_data_invalid");
+  const pageNode = graph[unwrapIndex(dataNode["/crypto-price/signal"])];
+  if (!isRecord(pageNode)) throw new Error("tabdeal_signal_nuxt_signal_page_invalid");
+  const marketEventsData = decodeIndex(unwrapIndex(pageNode.marketEventsData));
+
+  return {prerenderedAt, marketEventsData};
 }
 
 function normalizeEvent(raw) {
@@ -166,8 +191,7 @@ export function parseTabdealSignalPageHtml(html, {nowMs = Date.now()} = {}) {
     throw new Error("tabdeal_signal_nuxt_json_invalid");
   }
   const root = decodeNuxtGraph(graph);
-  const page = root?.data?.["/crypto-price/signal"];
-  const marketEvents = page?.marketEventsData;
+  const marketEvents = root?.marketEventsData;
   if (!isRecord(marketEvents) || !Array.isArray(marketEvents.results)) {
     throw new Error("tabdeal_signal_event_data_missing");
   }
