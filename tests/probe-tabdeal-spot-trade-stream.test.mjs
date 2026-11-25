@@ -95,3 +95,30 @@ test("rejects durations outside the bounded one-time probe window", async () => 
     /duration_invalid/
   );
 });
+
+
+test("captures non-null subscription responses without falsely marking a topic acknowledged", async () => {
+  class NonNullAckWebSocket extends FakeWebSocket {
+    send(message) {
+      const request = JSON.parse(message);
+      this.sent.push(request);
+      queueMicrotask(() => this.emit("message", {data: JSON.stringify({
+        id: request.id,
+        result: "topic_ignored"
+      })}));
+    }
+  }
+  const report = await probeTabdealSpotTradeStreams({
+    durationMs: 5_000,
+    WebSocketImpl: NonNullAckWebSocket,
+    clock: () => 1_800_000_000_010
+  });
+  assert.equal(report.topics[0].acknowledged, false);
+  assert.deepEqual(report.topics[0].subscriptionResponseSummary, {
+    kind: "non_null_result",
+    responseKeys: ["id", "result"],
+    resultType: "string",
+    resultValue: "topic_ignored"
+  });
+  assert.equal(report.topics[0].messageCount, 0);
+});
