@@ -1,0 +1,60 @@
+name: Tabdeal Public Signal Capture
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/tabdeal-signal-events.js"
+      - "scripts/tabdeal-signal-capture.mjs"
+      - "scripts/append-tabdeal-signal-history.mjs"
+      - ".github/workflows/tabdeal-signal-capture.yml"
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tabdeal-public-signal-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Capture public Tabdeal market events
+        run: node scripts/tabdeal-signal-capture.mjs
+      - name: Keep raw snapshot for short-term diagnosis
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-public-signal-snapshot
+          path: artifacts/tabdeal-signal-events/latest.json
+          if-no-files-found: error
+          retention-days: 3
+      - name: Check out append-only signal history branch
+        uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: ${{ github.token }}
+      - name: Append a new monthly signal snapshot
+        run: node scripts/append-tabdeal-signal-history.mjs artifacts/tabdeal-signal-events/latest.json signal-history/data/tabdeal-signal-events
+      - name: Commit and push new history only when changed
+        shell: bash
+        run: |
+          cd signal-history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/tabdeal-signal-events/
+          if git diff --cached --quiet; then
+            echo "No new source snapshot; history unchanged."
+          else
+            git commit -m "data: append Tabdeal public signal snapshot"
+            git push origin signal-history
+          fi

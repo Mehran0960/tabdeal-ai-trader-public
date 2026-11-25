@@ -6,6 +6,8 @@ Run `npm run market:scan` locally or dispatch the **Tabdeal Public Market Scan**
 
 The scan is for diagnostics and data-quality measurement, not an entry signal.
 
+The **Tabdeal Public Signal Capture** workflow fetches the public signal page hourly and appends each new source-rendered event snapshot to the `signal-history` branch. The page currently returns only a subset of its reported events, so the stored records carry pagination-completeness flags. They are candidate-discovery context, not standalone trade signals. TDEX is tracked separately and excluded from automated Spot execution.
+
 ## Stage 2 — build a trustworthy history
 
 Measure cadence, symbol coverage, page truncation, trade-ID continuity, timestamp ordering, freshness and book quality. Resolve IRT denomination and official fee/minimum-order rules. Do not build candles from incomplete pages.

@@ -22,6 +22,10 @@ A single order-book snapshot is not a historical series. A recent-trades respons
 
 A strategy must fail closed on stale, missing, duplicated, out-of-order, or unit-ambiguous data.
 
+The public Tabdeal signal page is ingested using its current server-rendered HTML payload because no versioned signal API contract was established. The parser stores only market-event fields; it drops comments and trader-leaderboard data. It records the source render time and page coverage, and structural changes fail closed. A partial page is never treated as a full event history. These events can seed research candidate discovery but cannot be traded directly or counted as validated labels.
+
+TDEX quotes are excluded from the Spot execution universe. They are indicative swap quotes for a separate decentralized path, not a Spot order book or firm executable price.
+
 ## Strategy validation gates
 
 No strategy is live-approved. Before even considering a limited real-money pilot, require:
