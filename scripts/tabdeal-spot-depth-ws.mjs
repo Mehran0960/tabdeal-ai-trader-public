@@ -73,7 +73,9 @@ function summarizeDepthMessage(message, expectedSymbol, receivedAtMs) {
     askDepthTop5Quote,
     imbalance,
     bidLevelCount: bids.length,
-    askLevelCount: asks.length
+    askLevelCount: asks.length,
+    sequenceMetadataFields: ["U", "u", "lastUpdateId", "firstUpdateId", "finalUpdateId"]
+      .filter(key => Object.hasOwn(message, key))
   };
 }
 
@@ -94,6 +96,13 @@ function createAccumulator(symbol) {
     imbalanceSum: 0,
     eventLagMsSum: 0,
     maxAbsoluteEventLagMs: 0,
+    minBidLevelCount: null,
+    maxBidLevelCount: 0,
+    bidLevelCountSum: 0,
+    minAskLevelCount: null,
+    maxAskLevelCount: 0,
+    askLevelCountSum: 0,
+    sequenceMetadataFields: new Set(),
     latest: null
   };
 }
@@ -112,6 +121,13 @@ function accumulate(state, row) {
   state.imbalanceSum += row.imbalance;
   state.eventLagMsSum += row.eventLagMs;
   state.maxAbsoluteEventLagMs = Math.max(state.maxAbsoluteEventLagMs, Math.abs(row.eventLagMs));
+  state.minBidLevelCount = state.minBidLevelCount === null ? row.bidLevelCount : Math.min(state.minBidLevelCount, row.bidLevelCount);
+  state.maxBidLevelCount = Math.max(state.maxBidLevelCount, row.bidLevelCount);
+  state.bidLevelCountSum += row.bidLevelCount;
+  state.minAskLevelCount = state.minAskLevelCount === null ? row.askLevelCount : Math.min(state.minAskLevelCount, row.askLevelCount);
+  state.maxAskLevelCount = Math.max(state.maxAskLevelCount, row.askLevelCount);
+  state.askLevelCountSum += row.askLevelCount;
+  for (const key of row.sequenceMetadataFields) state.sequenceMetadataFields.add(key);
   state.latest = {
     eventTimeMs: row.eventTimeMs,
     bestBid: row.bestBid,
@@ -121,7 +137,9 @@ function accumulate(state, row) {
     bidDepthTop5Quote: row.bidDepthTop5Quote,
     askDepthTop5Quote: row.askDepthTop5Quote,
     imbalance: row.imbalance,
-    eventLagMs: row.eventLagMs
+    eventLagMs: row.eventLagMs,
+    bidLevelCount: row.bidLevelCount,
+    askLevelCount: row.askLevelCount
   };
 }
 
@@ -143,6 +161,18 @@ function finalizeAccumulator(state) {
     meanTop5Imbalance: state.imbalanceSum / n,
     meanEventLagMs: state.eventLagMsSum / n,
     maxAbsoluteEventLagMs: state.maxAbsoluteEventLagMs,
+    bidLevelCountRange: {
+      min: state.minBidLevelCount,
+      mean: state.bidLevelCountSum / n,
+      max: state.maxBidLevelCount
+    },
+    askLevelCountRange: {
+      min: state.minAskLevelCount,
+      mean: state.askLevelCountSum / n,
+      max: state.maxAskLevelCount
+    },
+    sequenceMetadataFieldsObserved: [...state.sequenceMetadataFields].sort(),
+    sequenceMetadataObserved: state.sequenceMetadataFields.size > 0,
     latest: state.latest
   };
 }
@@ -353,7 +383,10 @@ async function main() {
       meanSpreadBps: row.meanSpreadBps,
       maxSpreadBps: row.maxSpreadBps,
       meanTop5Imbalance: row.meanTop5Imbalance,
-      maxAbsoluteEventLagMs: row.maxAbsoluteEventLagMs
+      maxAbsoluteEventLagMs: row.maxAbsoluteEventLagMs,
+      bidLevelCountRange: row.bidLevelCountRange,
+      askLevelCountRange: row.askLevelCountRange,
+      sequenceMetadataFieldsObserved: row.sequenceMetadataFieldsObserved
     })),
     publicWebsocketOnly: report.safety.publicWebsocketOnly,
     apiKeyUsed: report.safety.apiKeyUsed,
