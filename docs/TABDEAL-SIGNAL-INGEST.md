@@ -10,7 +10,7 @@ Comments, public trader leaderboards, usernames, account data and private API de
 
 - The first server-rendered page may contain fewer rows than the reported total. The collector records `totalEventCount`, `numberOfPages`, `rowsReturned`, and `allPagesCaptured`; it must not imply complete pagination.
 - The page HTML and Nuxt payload are not a versioned, official data API contract. Markup, schema, cache behaviour, event names or availability may change. Structural changes fail closed.
-- `sourceRenderedAt` describes the rendered page payload; each run also records local capture time. The Jalali event-time string is kept verbatim and is not silently converted to UTC.
+- `sourceRenderedAt` describes the rendered page payload; each run also records local capture time. Under 5 minutes is classified fresh, 5–60 minutes is delayed, and over 60 minutes is stale. Delayed/stale rows are historical context only and must not trigger execution. The Jalali event-time string is kept verbatim and is not silently converted to UTC.
 - Events are candidate-discovery metadata, not standalone entry/exit signals. Verify the market independently, then check current order-book depth, spread, executable price, fees and unit mapping.
 - A page event is not an auditable historical strategy label unless its event-generation methodology, timestamps, survivorship and complete historical coverage are independently established.
 - The first page of data may be incomplete, and a snapshot series only starts when this workflow is enabled. It is not a backfill.
