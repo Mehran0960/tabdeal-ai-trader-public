@@ -229,8 +229,33 @@ export async function probeTabdealSpotTradeStreams({
           } else if (Array.isArray(result)) {
             summary.resultLength = result.length;
             summary.resultItemTypes = [...new Set(result.slice(0, 10).map(value => Array.isArray(value) ? "array" : value === null ? "null" : typeof value))];
+            summary.resultItemSummaries = result.slice(0, 5).map(value => {
+              if (!value || typeof value !== "object" || Array.isArray(value)) {
+                return {type: value === null ? "null" : Array.isArray(value) ? "array" : typeof value};
+              }
+              const safeFields = {};
+              for (const key of ["stream", "symbol", "s", "topic", "channel", "event", "e", "eventType", "type", "status", "code", "message", "msg"]) {
+                if (["string", "number", "boolean"].includes(typeof value[key])) {
+                  safeFields[key] = String(value[key]).slice(0, 100);
+                }
+              }
+              return {
+                type: "object",
+                keys: Object.keys(value).sort().slice(0, 40),
+                safeFields,
+                priceFieldObserved: Object.hasOwn(value, "p") || Object.hasOwn(value, "price"),
+                quantityFieldObserved: Object.hasOwn(value, "q") || Object.hasOwn(value, "qty"),
+                tradeIdFieldObserved: ["t", "a", "id", "tradeId"].some(key => Object.hasOwn(value, key))
+              };
+            });
           } else if (result && typeof result === "object") {
             summary.resultKeys = Object.keys(result).sort().slice(0, 30);
+            summary.resultSafeFields = {};
+            for (const key of ["stream", "symbol", "s", "topic", "channel", "event", "e", "eventType", "type", "status", "code", "message", "msg"]) {
+              if (["string", "number", "boolean"].includes(typeof result[key])) {
+                summary.resultSafeFields[key] = String(result[key]).slice(0, 100);
+              }
+            }
           }
           row.subscriptionResponseSummary = summary;
           row.ignoredMessages++;
