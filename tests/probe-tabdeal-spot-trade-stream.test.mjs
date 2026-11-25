@@ -122,3 +122,36 @@ test("captures non-null subscription responses without falsely marking a topic a
   });
   assert.equal(report.topics[0].messageCount, 0);
 });
+
+
+test("summarizes array response object fields without retaining raw trade values", async () => {
+  class ArrayResultWebSocket extends FakeWebSocket {
+    send(message) {
+      const request = JSON.parse(message);
+      this.sent.push(request);
+      queueMicrotask(() => this.emit("message", {data: JSON.stringify({
+        id: request.id,
+        result: [{stream: "btcusdt@trade", symbol: "BTCUSDT", e: "subscription", status: "subscribed"}]
+      })}));
+    }
+  }
+  const report = await probeTabdealSpotTradeStreams({
+    durationMs: 5_000,
+    WebSocketImpl: ArrayResultWebSocket,
+    clock: () => 1_800_000_000_010
+  });
+  assert.equal(report.topics[0].subscriptionResponseSummary.resultType, "array");
+  assert.deepEqual(report.topics[0].subscriptionResponseSummary.resultItemSummaries[0], {
+    type: "object",
+    keys: ["e", "status", "stream", "symbol"],
+    safeFields: {
+      stream: "btcusdt@trade",
+      symbol: "BTCUSDT",
+      e: "subscription",
+      status: "subscribed"
+    },
+    priceFieldObserved: false,
+    quantityFieldObserved: false,
+    tradeIdFieldObserved: false
+  });
+});
