@@ -18,7 +18,7 @@ This repository is the sanitized, public research companion to a separate privat
 
 - The current public trades endpoint is queried as a single recent page (up to 1,000 records). A capped page is flagged as potentially truncated; an uncapped page is still not assumed to be complete history.
 - Recent trades and a single order-book snapshot are not a validated candle history. The scanner does not fabricate OHLC candles from them. The public Spot WebSocket currently provides order-book updates only; it is used for liquidity/spread diagnostics, not trade signals.
-- IRT quote-unit and settlement semantics remain unverified. The code keeps IRT marked as `IRT_UNVERIFIED`; it must not be silently treated as RIAL or TOMAN.
+- IRT quote-unit and settlement semantics remain unverified. The code keeps IRT marked as `IRT_UNVERIFIED` in market snapshots and Spot depth history; it must not be silently treated as RIAL or TOMAN.
 - The public signal page is parsed as an HTML/Nuxt payload, not a stable official API. Only the first returned page is captured when pagination is incomplete; rows are candidate-discovery metadata, not entry signals.
 - TDEX is a separate decentralized swap path and is excluded from the automatic Spot executor.
 - No strategy in this project is currently certified profitable. Paper/backtest results are hypotheses, not a promise of future returns.
