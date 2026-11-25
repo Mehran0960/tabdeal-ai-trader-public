@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: tabdeal-public-signal-capture
+  group: tabdeal-public-history-write
   cancel-in-progress: false
 
 jobs:
