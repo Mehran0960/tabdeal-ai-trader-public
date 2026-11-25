@@ -13,7 +13,7 @@ function snapshot(id = "a".repeat(64)) {
     capturedAt: "2026-11-26T00:00:00.000Z",
     sourceRenderedAt: "2026-11-25T23:59:00.000Z",
     sourceAgeMs: 60_000,
-    sourceFreshness: "within_24h",
+    sourceFreshness: "fresh_under_5m",
     pagination: {totalEventCount: 1, numberOfPages: 1, rowsReturned: 1, allPagesCaptured: true, firstPageOnly: false},
     events: [{symbol: "BTC", eventType: "TEST_EVENT", eventKey: "BTC|TEST_EVENT"}],
     safety: {publicPageOnly: true, authenticatedAccountAccess: false, apiCredentialsUsed: false, orderSubmissionAttempted: false}
