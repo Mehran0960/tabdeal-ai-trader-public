@@ -63,6 +63,9 @@ test("subscribes to official public Spot depth topics and aggregates updates", a
   assert.deepEqual(JSON.parse(ws.sent[0]).params, ["btcusdt@depth@2000ms", "ethusdt@depth@2000ms"]);
   assert.equal(report.summary.symbolsWithUpdates, 2);
   assert.equal(report.symbols[0].updateCount, 1);
+  assert.equal(report.symbols[0].quoteAsset, "USDT");
+  assert.equal(report.symbols[0].quoteUnitCode, "USDT");
+  assert.equal(report.symbols[1].quoteAsset, "USDT");
   assert.equal(report.symbols[0].latest.bestBid, "100");
   assert.equal(report.symbols[0].latest.bestAsk, "101");
   assert.ok(Math.abs(report.symbols[0].latest.spreadBps - 99.50248756218906) < 1e-10);
