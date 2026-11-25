@@ -6,6 +6,7 @@ This repository is the sanitized, public research companion to a separate privat
 
 - Read-only access to Tabdeal public Spot market endpoints.
 - Market-structure summaries (order book and recent-trade snapshots).
+- Short, unauthenticated Spot order-book WebSocket sampling for spread and liquidity diagnostics.
 - Read-only capture of public Tabdeal market-event signals, with explicit first-page coverage and freshness metadata.
 - Research and risk-analysis functions.
 - Backtest helpers and a paper-simulation engine.
@@ -16,7 +17,7 @@ This repository is the sanitized, public research companion to a separate privat
 ## Important data limitations
 
 - The current public trades endpoint is queried as a single recent page (up to 1,000 records). A capped page is flagged as potentially truncated; an uncapped page is still not assumed to be complete history.
-- Recent trades and a single order-book snapshot are not a validated candle history. The scanner does not fabricate OHLC candles from them.
+- Recent trades and a single order-book snapshot are not a validated candle history. The scanner does not fabricate OHLC candles from them. The public Spot WebSocket currently provides order-book updates only; it is used for liquidity/spread diagnostics, not trade signals.
 - IRT quote-unit and settlement semantics remain unverified. The code keeps IRT marked as `IRT_UNVERIFIED`; it must not be silently treated as RIAL or TOMAN.
 - The public signal page is parsed as an HTML/Nuxt payload, not a stable official API. Only the first returned page is captured when pagination is incomplete; rows are candidate-discovery metadata, not entry signals.
 - TDEX is a separate decentralized swap path and is excluded from the automatic Spot executor.
@@ -31,9 +32,10 @@ npm run check
 npm test
 npm run market:scan
 npm run signals:scan
+npm run ws:spot-depth
 ```
 
-The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. The signal scan writes `artifacts/tabdeal-signal-events/latest.json`. These artifacts are ignored by Git. The scheduled signal workflow stores prospective, deduplicated observations in the separate `signal-history` branch.
+The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. The signal scan writes `artifacts/tabdeal-signal-events/latest.json`. These artifacts are ignored by Git. The scheduled signal workflow stores prospective, deduplicated observations in the separate `signal-history` branch. The Spot depth sampler listens to the official 2-second order-book stream for one minute per run and stores only aggregate microstructure summaries in the same history branch; it does not retain raw messages.
 
 ## Research and execution gates
 

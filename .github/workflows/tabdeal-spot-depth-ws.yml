@@ -1,0 +1,59 @@
+name: Tabdeal Public Spot Depth Stream
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/tabdeal-spot-depth-ws.mjs"
+      - "scripts/append-tabdeal-spot-depth-history.mjs"
+      - ".github/workflows/tabdeal-spot-depth-ws.yml"
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tabdeal-public-history-write
+  cancel-in-progress: false
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Capture one minute of official Spot depth updates
+        run: node scripts/tabdeal-spot-depth-ws.mjs
+      - name: Keep short-lived raw summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-public-spot-depth
+          path: artifacts/tabdeal-spot-depth/latest.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Check out append-only public history branch
+        uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: ${{ github.token }}
+      - name: Append one aggregated depth sample
+        run: node scripts/append-tabdeal-spot-depth-history.mjs artifacts/tabdeal-spot-depth/latest.json signal-history/data/tabdeal-spot-depth
+      - name: Commit and push new depth history only when changed
+        shell: bash
+        run: |
+          cd signal-history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/tabdeal-spot-depth/
+          if git diff --cached --quiet; then
+            echo "No new depth sample; history unchanged."
+          else
+            git commit -m "data: append public Tabdeal Spot depth summary"
+            git push origin signal-history
+          fi
