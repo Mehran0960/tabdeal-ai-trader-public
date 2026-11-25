@@ -234,10 +234,17 @@ export async function probeTabdealSpotTradeStreams({
                 return {type: value === null ? "null" : Array.isArray(value) ? "array" : typeof value};
               }
               const safeFields = {};
-              for (const key of ["stream", "symbol", "s", "topic", "channel", "event", "e", "eventType", "type", "status", "code", "message", "msg"]) {
+              for (const key of ["stream", "symbol", "s", "topic", "channel", "event", "e", "eventType", "type", "status", "code", "message", "msg", "param", "error"]) {
                 if (["string", "number", "boolean"].includes(typeof value[key])) {
                   safeFields[key] = String(value[key]).slice(0, 100);
                 }
+              }
+              if (value.error && typeof value.error === "object") {
+                safeFields.errorSummary = {
+                  keys: Object.keys(value.error).sort().slice(0, 20),
+                  code: Number.isFinite(Number(value.error.code)) ? Number(value.error.code) : null,
+                  message: String(value.error.msg || value.error.message || "").slice(0, 120)
+                };
               }
               return {
                 type: "object",
