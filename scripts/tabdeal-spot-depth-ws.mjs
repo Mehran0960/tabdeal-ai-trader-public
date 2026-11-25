@@ -124,11 +124,10 @@ function accumulate(state, row) {
 
 function finalizeAccumulator(state, durationMinutes) {
   const n = state.updateCount;
-  if (!n) return {...state, updateRatePerMinute: 0};
+  if (!n) return state;
   return {
     symbol: state.symbol,
     updateCount: n,
-    updateRatePerMinute: n / durationMinutes,
     firstEventTime: new Date(state.firstEventTimeMs).toISOString(),
     lastEventTime: new Date(state.lastEventTimeMs).toISOString(),
     minSpreadBps: state.minSpreadBps,
@@ -195,8 +194,7 @@ export async function captureTabdealSpotDepthWebsocket({
       }
 
       const endedAtMs = clock();
-      const durationMinutes = Math.max((endedAtMs - startedAtMs) / 60_000, 1 / 60_000);
-      const symbols = [...states.values()].map(state => finalizeAccumulator(state, durationMinutes));
+      const symbols = [...states.values()].map(finalizeAccumulator);
       const symbolsWithUpdates = symbols.filter(row => row.updateCount > 0).length;
       if (symbolsWithUpdates === 0) {
         reject(new Error("tabdeal_spot_depth_no_valid_updates"));
