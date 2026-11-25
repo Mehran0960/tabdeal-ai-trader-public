@@ -1,0 +1,32 @@
+name: Tabdeal Public Market Scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/tabdeal-market-data.js"
+      - "scripts/tabdeal-market-scout.mjs"
+      - ".github/workflows/public-market-scan.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch read-only public Spot snapshots
+        run: npm run market:scan
+      - name: Keep the public market snapshot briefly
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-public-market-snapshot
+          path: artifacts/tabdeal-market-data/*.json
+          if-no-files-found: error
+          retention-days: 3
