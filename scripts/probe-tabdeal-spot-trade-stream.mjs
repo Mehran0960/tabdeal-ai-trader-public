@@ -99,9 +99,16 @@ export async function probeTabdealSpotTradeStreams({
       const endedAtMs = clock();
       const results = topics.map(row => {
         const messages = row.messages;
+        const responseItems = row.subscriptionResponseSummary?.resultItemSummaries ?? [];
+        const rejectionItem = responseItems.find(item => typeof item?.safeFields?.error === "string");
+        const rejectionError = rejectionItem?.safeFields?.error ?? null;
+        const rejectionParam = rejectionItem?.safeFields?.param ?? null;
+        const rejected = rejectionError !== null && rejectionParam === row.topic;
         return {
           topic: row.topic,
           acknowledged: row.acknowledged,
+          rejected,
+          rejectionError,
           subscriptionResponseSummary: row.subscriptionResponseSummary,
           messageCount: messages,
           malformedMessages: row.malformedMessages,
@@ -119,6 +126,7 @@ export async function probeTabdealSpotTradeStreams({
           quantityFieldObserved: row.quantityFieldObserved,
           buyerMakerFieldObserved: row.buyerMakerFieldObserved,
           result: messages > 0 ? "trade_messages_observed"
+            : rejected ? "topic_rejected_by_server"
             : row.acknowledged ? "acknowledged_but_no_trade_messages_observed"
             : errors.some(item => item.topic === row.topic) ? "subscription_error"
             : "no_acknowledgement_or_trade_messages"
@@ -137,7 +145,11 @@ export async function probeTabdealSpotTradeStreams({
         nonJsonMessageCount,
         conclusion: results.some(row => row.messageCount > 0)
           ? "one_or_more_undocumented_spot_trade_topics_emitted_messages"
-          : "no_spot_trade_messages_observed_in_probe_window_not_proof_of_absence",
+          : results.length > 0 && results.every(row => row.rejected)
+            ? "all_tested_spot_trade_topics_rejected_by_server"
+            : results.some(row => row.rejected)
+              ? "some_tested_spot_trade_topics_rejected_by_server"
+              : "no_spot_trade_messages_observed_in_probe_window_not_proof_of_absence",
         safety: {
           publicWebsocketOnly: true,
           apiKeyUsed: false,
