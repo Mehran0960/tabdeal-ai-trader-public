@@ -177,6 +177,10 @@ test("records only safe public fields from a topic rejection object", async () =
     param: "btcusdt@trade",
     error: "unknown topic"
   });
+  assert.equal(report.topics[0].rejected, true);
+  assert.equal(report.topics[0].rejectionError, "unknown topic");
+  assert.equal(report.topics[0].result, "topic_rejected_by_server");
+  assert.equal(report.conclusion, "all_tested_spot_trade_topics_rejected_by_server");
   assert.equal(report.topics[0].messageCount, 0);
   assert.equal(report.topics[0].acknowledged, false);
 });
