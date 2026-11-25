@@ -36,10 +36,6 @@ function normalizeSide(rows, descending) {
   return parsed;
 }
 
-function addAverage(state, key, value) {
-  state[key] = (state[key] || 0) + value;
-}
-
 function summarizeDepthMessage(message, expectedSymbol, receivedAtMs) {
   if (!message || typeof message !== "object" || Array.isArray(message)) return null;
   if (String(message.s || "").toUpperCase() !== expectedSymbol) return null;
@@ -126,13 +122,13 @@ function accumulate(state, row) {
   };
 }
 
-function finalizeAccumulator(state) {
+function finalizeAccumulator(state, durationMinutes) {
   const n = state.updateCount;
   if (!n) return {...state, updateRatePerMinute: 0};
   return {
     symbol: state.symbol,
     updateCount: n,
-    updateRatePerMinute: n,
+    updateRatePerMinute: n / durationMinutes,
     firstEventTime: new Date(state.firstEventTimeMs).toISOString(),
     lastEventTime: new Date(state.lastEventTimeMs).toISOString(),
     minSpreadBps: state.minSpreadBps,
@@ -199,7 +195,8 @@ export async function captureTabdealSpotDepthWebsocket({
       }
 
       const endedAtMs = clock();
-      const symbols = [...states.values()].map(finalizeAccumulator);
+      const durationMinutes = Math.max((endedAtMs - startedAtMs) / 60_000, 1 / 60_000);
+      const symbols = [...states.values()].map(state => finalizeAccumulator(state, durationMinutes));
       const symbolsWithUpdates = symbols.filter(row => row.updateCount > 0).length;
       if (symbolsWithUpdates === 0) {
         reject(new Error("tabdeal_spot_depth_no_valid_updates"));
