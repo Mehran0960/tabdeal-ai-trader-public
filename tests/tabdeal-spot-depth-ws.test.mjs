@@ -52,7 +52,7 @@ class FakeWebSocket {
 test("subscribes to official public Spot depth topics and aggregates updates", async () => {
   FakeWebSocket.instances = [];
   const report = await captureTabdealSpotDepthWebsocket({
-    symbols: ["BTCUSDT", "ETHUSDT"],
+    symbols: ["BTCUSDT", "ETHIRT"],
     durationMs: 150,
     WebSocketImpl: FakeWebSocket,
     clock: () => 1_800_000_000_010
@@ -60,9 +60,13 @@ test("subscribes to official public Spot depth topics and aggregates updates", a
   const ws = FakeWebSocket.instances[0];
   assert.equal(ws.url, TABDEAL_SPOT_DEPTH_WS_URL);
   assert.equal(JSON.parse(ws.sent[0]).method, "SUBSCRIBE");
-  assert.deepEqual(JSON.parse(ws.sent[0]).params, ["btcusdt@depth@2000ms", "ethusdt@depth@2000ms"]);
+  assert.deepEqual(JSON.parse(ws.sent[0]).params, ["btcusdt@depth@2000ms", "ethirt@depth@2000ms"]);
   assert.equal(report.summary.symbolsWithUpdates, 2);
   assert.equal(report.symbols[0].updateCount, 1);
+  assert.equal(report.symbols[0].quoteAsset, "USDT");
+  assert.equal(report.symbols[0].quoteUnitCode, "USDT");
+  assert.equal(report.symbols[1].quoteAsset, "IRT");
+  assert.equal(report.symbols[1].quoteUnitCode, "IRT_UNVERIFIED");
   assert.equal(report.symbols[0].latest.bestBid, "100");
   assert.equal(report.symbols[0].latest.bestAsk, "101");
   assert.ok(Math.abs(report.symbols[0].latest.spreadBps - 99.50248756218906) < 1e-10);

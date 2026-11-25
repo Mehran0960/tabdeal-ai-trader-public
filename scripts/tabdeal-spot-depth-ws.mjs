@@ -78,8 +78,11 @@ function summarizeDepthMessage(message, expectedSymbol, receivedAtMs) {
 }
 
 function createAccumulator(symbol) {
+  const quoteAsset = symbol.endsWith("IRT") ? "IRT" : "USDT";
   return {
     symbol,
+    quoteAsset,
+    quoteUnitCode: quoteAsset === "IRT" ? "IRT_UNVERIFIED" : "USDT",
     updateCount: 0,
     firstEventTimeMs: null,
     lastEventTimeMs: null,
@@ -122,11 +125,13 @@ function accumulate(state, row) {
   };
 }
 
-function finalizeAccumulator(state, durationMinutes) {
+function finalizeAccumulator(state) {
   const n = state.updateCount;
   if (!n) return state;
   return {
     symbol: state.symbol,
+    quoteAsset: state.quoteAsset,
+    quoteUnitCode: state.quoteUnitCode,
     updateCount: n,
     firstEventTime: new Date(state.firstEventTimeMs).toISOString(),
     lastEventTime: new Date(state.lastEventTimeMs).toISOString(),

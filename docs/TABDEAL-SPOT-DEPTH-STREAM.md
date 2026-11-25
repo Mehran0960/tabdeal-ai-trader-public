@@ -29,6 +29,6 @@ Raw update messages are not committed to the long-term history branch. Short-liv
 - These are order-book observations, not executed trades, OHLC candles or fill records.
 - Top-five quote depth is a snapshot metric; it does not prove available executable size at later order arrival.
 - The collector is a short burst and GitHub scheduled jobs are best effort; it does not provide uninterrupted 24/7 tick data.
-- IRT remains `IRT_UNVERIFIED`; IRT quote depth must not be combined with USDT depth or converted without unit evidence.
+- Each symbol record carries `quoteAsset` and `quoteUnitCode`; IRT is explicitly stored as `IRT_UNVERIFIED`, while USDT is stored as `USDT`. IRT quote depth must not be combined with USDT depth or converted without unit evidence.
 - Use this feed for liquidity/spread screening and microstructure research only. It is not an entry/exit signal and cannot by itself validate a profitable strategy.
 - No API credentials, account endpoints, orders, transfers or withdrawals are used.
