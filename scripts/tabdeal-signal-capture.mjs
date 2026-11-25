@@ -21,6 +21,7 @@ async function main() {
     sourceRenderedAt: report.sourceRenderedAt,
     sourceAgeMs: report.sourceAgeMs,
     sourceFreshness: report.sourceFreshness,
+    tradeResearchEligibleByFreshness: report.sourceFreshness === "fresh_under_5m",
     totalEventCount: report.pagination.totalEventCount,
     rowsReturned: report.pagination.rowsReturned,
     numberOfPages: report.pagination.numberOfPages,
