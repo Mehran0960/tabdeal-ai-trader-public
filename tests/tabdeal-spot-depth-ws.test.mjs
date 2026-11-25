@@ -65,7 +65,7 @@ test("subscribes to official public Spot depth topics and aggregates updates", a
   assert.equal(report.symbols[0].updateCount, 1);
   assert.equal(report.symbols[0].latest.bestBid, "100");
   assert.equal(report.symbols[0].latest.bestAsk, "101");
-  assert.equal(report.symbols[0].latest.spreadBps, 99.50248756218906);
+  assert.ok(Math.abs(report.symbols[0].latest.spreadBps - 99.50248756218906) < 1e-10);
   assert.equal(report.safety.apiKeyUsed, false);
   assert.equal(report.safety.placesOrders, false);
   assert.equal(report.safety.movesFunds, false);
