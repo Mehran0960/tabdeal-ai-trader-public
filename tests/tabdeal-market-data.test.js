@@ -187,3 +187,32 @@ test("rejects a non-integer or excessive requested trade limit",async()=>{
   await assert.rejects(runTabdealPublicMarketScout({symbols:["BTCIRT"],tradeLimit:0}),/tabdeal_research_trade_limit_invalid/);
   await assert.rejects(runTabdealPublicMarketScout({symbols:["BTCIRT"],tradeLimit:1001}),/tabdeal_research_trade_limit_invalid/);
 });
+
+
+test("separates parse-valid trade snapshots from freshness diagnostics",async()=>{
+  const now=Date.now();
+  const report=await runTabdealPublicMarketScout({
+    symbols:["BTCUSDT","ETHUSDT"],
+    clock:()=>now,
+    spacingMs:0,
+    sleepImpl:async()=>{},
+    fetchImpl:async url=>{
+      const parsed=new URL(String(url));
+      const symbol=parsed.searchParams.get("symbol");
+      if(parsed.pathname.endsWith("/exchangeInfo"))return {ok:true,status:200,json:async()=>[
+        market("BTCUSDT","BTC","USDT"),market("ETHUSDT","ETH","USDT")
+      ]};
+      if(parsed.pathname.endsWith("/depth"))return {ok:true,status:200,json:async()=>book()};
+      if(parsed.pathname.endsWith("/trades")) {
+        return {ok:true,status:200,json:async()=>symbol==="BTCUSDT"?trades(now):trades(now-120_000)};
+      }
+      throw new Error("unexpected_url");
+    }
+  });
+  assert.equal(report.summary.validTradeSnapshots,2);
+  assert.equal(report.summary.tradeSnapshotsWithin60s,1);
+  assert.equal(report.summary.tradeSnapshotsOlderThan60s,1);
+  assert.equal(report.summary.tradeSnapshotsWithFutureTimestamp,0);
+  assert.equal(report.summary.tradeFreshnessDiagnosticThresholdMs,60_000);
+  assert.equal(report.summary.cappedTradePages,0);
+});
