@@ -35,6 +35,8 @@ class FakeWebSocket {
           data: {
             e: "depthUpdate",
             E: 1_800_000_000_000,
+            U: 100,
+            u: 102,
             s: symbol,
             b: [["100", "2"], ["99", "3"]],
             a: [["101", "1"], ["102", "2"]]
@@ -67,6 +69,10 @@ test("subscribes to official public Spot depth topics and aggregates updates", a
   assert.equal(report.symbols[0].quoteUnitCode, "USDT");
   assert.equal(report.symbols[1].quoteAsset, "IRT");
   assert.equal(report.symbols[1].quoteUnitCode, "IRT_UNVERIFIED");
+  assert.deepEqual(report.symbols[0].bidLevelCountRange, {min: 2, mean: 2, max: 2});
+  assert.deepEqual(report.symbols[0].askLevelCountRange, {min: 2, mean: 2, max: 2});
+  assert.deepEqual(report.symbols[0].sequenceMetadataFieldsObserved, ["U", "u"]);
+  assert.equal(report.symbols[0].sequenceMetadataObserved, true);
   assert.equal(report.symbols[0].latest.bestBid, "100");
   assert.equal(report.symbols[0].latest.bestAsk, "101");
   assert.ok(Math.abs(report.symbols[0].latest.spreadBps - 99.50248756218906) < 1e-10);
