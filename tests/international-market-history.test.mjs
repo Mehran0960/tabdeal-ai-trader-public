@@ -65,7 +65,7 @@ test("cross venue comparison uses percentage returns, never raw USD/USDT price j
 
 test("normalizes Tabdeal USDT Spot depth and its public execution filters",()=>{
   const market={
-    symbol:"BTCUSDT",status:"TRADING",isSpotTradingAllowed:true,
+    symbol:"BTCUSDT",baseAsset:"BTC",status:"TRADING",isSpotTradingAllowed:true,
     permissions:["SPOT"],quoteAsset:"USDT",
     filters:[
       {filterType:"LOT_SIZE",minQty:"0.0001",stepSize:"0.0001"},
@@ -101,7 +101,7 @@ test("rejects mismatched Tabdeal symbol metadata and duplicate active markets",(
 });
 
 test("fails closed on crossed Tabdeal books",()=>{
-  const market={symbol:"BTCUSDT",status:"TRADING",isSpotTradingAllowed:true,permissions:["SPOT"],quoteAsset:"USDT"};
+  const market={symbol:"BTCUSDT",baseAsset:"BTC",status:"TRADING",isSpotTradingAllowed:true,permissions:["SPOT"],quoteAsset:"USDT"};
   const depth={bids:[["101","1"]],asks:[["100","1"]]};
   const book=normalizeTabdealBook({symbol:"BTCUSDT",market,depth,capturedAtMs:NOW});
   assert.equal(book.status,"crossed_or_empty_orderbook");
