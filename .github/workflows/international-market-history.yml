@@ -9,7 +9,7 @@ on:
       - "scripts/append-international-market-history.mjs"
       - ".github/workflows/international-market-history.yml"
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "5,20,35,50 * * * *"
   workflow_dispatch:
     inputs:
       mode:
