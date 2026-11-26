@@ -57,7 +57,19 @@ test("runs bounded public probes and returns only response metadata", async () =
     ["/0/public/Time", {error: [], result: {unixtime: 1688671200}}],
     ["/0/public/OHLC", {error: [], result: {XXBTZUSD: [[1000, "1", "2", "1", "2", "1", "3", 4]], last: 2000}}],
     ["/0/public/Trades", {error: [], result: {XXBTZUSD: [["1", "2", 1688671200, "b", "m", "", 1]], last: "2"}}],
-    ["/api/v3/ping-coingecko", {gecko_says: "(V3) To the Moon!"}]
+    ["/api/v3/ping-coingecko", {gecko_says: "(V3) To the Moon!"}],
+    ["/v4/timeseries/asset-metrics", {data: [
+      {asset: "btc", time: "2026-11-25T00:00:00.000Z", ReferenceRateUSD: "90000"},
+      {asset: "btc", time: "2026-11-26T00:00:00.000Z", ReferenceRateUSD: "91000"}
+    ]}],
+    ["/stablecoincharts/all", [
+      {date: 1795564800, totalCirculating: 300000000000},
+      {date: 1795651200, totalCirculating: 301000000000}
+    ]],
+    ["/fng/", {data: [
+      {value: "42", timestamp: "1795651200"},
+      {value: "45", timestamp: "1795564800"}
+    ]}]
   ]);
   const fetchImpl = async input => {
     const url = new URL(input);
@@ -76,10 +88,13 @@ test("runs bounded public probes and returns only response metadata", async () =
     now: () => new Date("2026-11-26T00:00:00.000Z")
   });
   assert.equal(report.requiredProviderStatus, "reachable");
-  assert.equal(report.probes.length, 7);
+  assert.equal(report.probes.length, 10);
   assert.equal(report.safety.ordersSubmitted, 0);
   assert.equal(report.safety.credentialsUsed, false);
   assert.equal(report.probes.find(item => item.id === "coingecko_ping").status, "reachable");
+  assert.equal(report.probes.find(item => item.id === "coinmetrics_reference_rate").status, "reachable");
+  assert.equal(report.probes.find(item => item.id === "defillama_stablecoin_history").status, "reachable");
+  assert.equal(report.probes.find(item => item.id === "alternative_fear_greed").status, "reachable");
   assert.equal(Object.hasOwn(report.probes[0], "price"), false);
 });
 

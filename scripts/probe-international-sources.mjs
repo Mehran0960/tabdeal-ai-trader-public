@@ -15,7 +15,7 @@ const rows = report.probes.map(item =>
   item.recordCount + " |"
 ).join("\n");
 const summary = [
-  "## International public market source probe",
+  "## Public market and auxiliary context source probe",
   "",
   "- Captured: " + report.capturedAt,
   "- Required provider status: **" + report.requiredProviderStatus + "**",
@@ -25,7 +25,7 @@ const summary = [
   "|---|---|---|---:|---:|---:|",
   rows,
   "",
-  "This probe tests reachability and response shape only; it does not validate history completeness or profitability."
+  "This probe tests reachability and response shape only; it does not validate history completeness, licensing, metric methodology or profitability."
 ].join("\n");
 
 console.log(JSON.stringify(report, null, 2));
