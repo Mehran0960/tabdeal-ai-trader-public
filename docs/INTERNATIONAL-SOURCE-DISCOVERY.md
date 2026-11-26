@@ -1,6 +1,6 @@
 # International source discovery
 
-Status: **read-only capability probe added; live runner result pending/recorded by GitHub Actions artifact**.
+Status: **read-only capability probe completed successfully from GitHub Actions runner on 2026-11-26**. The exact run is [45757469205](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45757469205).
 
 ## Why this lane exists
 
@@ -25,7 +25,7 @@ Official references:
 - [Kraken Recent Trades endpoint](https://docs.kraken.com/api-reference/market-data/get-recent-trades)
 - [Kraken Spot WebSocket v2 ticker channel](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker)
 
-Kraken documents public REST and WebSocket market-data interfaces. Its OHLC endpoint currently returns at most 720 recent intervals, and the final returned candle is the current, uncommitted interval; do not treat that last row as closed. Recent Trades returns up to 1,000 recent trades by default. This makes Kraken useful for recent independent validation, but not a standalone long-range candle archive.
+Kraken documents public REST and WebSocket market-data interfaces. Its OHLC endpoint documents a 720-row recent-history cap and includes the current, uncommitted interval as the last row; do not treat that last row as closed. The first actual probe returned 721 total rows (720 prior intervals plus the current uncommitted row), so pagination/cap semantics must be explicitly rechecked during collector implementation. Recent Trades returned 1,000 rows in the first probe, consistent with the endpoint's default recent-trade window. This makes Kraken useful for recent independent validation, but not a standalone long-range candle archive.
 
 ### 3. CoinGecko — optional context only
 
@@ -41,7 +41,7 @@ CoinGecko is optional for broad-market context, rankings and metadata. The curre
 The workflow [International Public Market Source Probe](../.github/workflows/international-source-probe.yml) tests:
 - Binance public ping, BTCUSDT exchange metadata and a small BTCUSDT 1h kline sample.
 - Kraken public server time, XBT/USD 1h OHLC and recent trades.
-- CoinGecko keyless ping as an optional diagnostic only.
+- CoinGecko keyless ping as an optional diagnostic only (HTTP 200 in the first probe; this health endpoint does not prove that market-data endpoints are available without a Demo key).
 
 It uses unauthenticated GET requests only. The report stores status, HTTP code, response latency, record counts and schema verdicts—not price, quantity, trade payloads, keys or account information. The workflow runs on relevant main-branch changes and can also be started manually. It is not a continuous market collector and has no scheduled polling.
 
@@ -69,3 +69,13 @@ External prices must never be passed to a Tabdeal executor as local executable p
 ## Safety
 
 No API key, account endpoint, order, transfer, withdrawal, margin, futures or TDEX operation is used by this probe. CoinGecko remains optional and no paid API is authorized.
+
+## First actual runner result — 2026-11-26T04:48:01Z
+
+The bounded probe completed from a GitHub-hosted Ubuntu 26.04 runner in Azure westus3. Results:
+- Binance: 3/3 checked public endpoints returned HTTP 200 and passed basic schema checks; the BTCUSDT 1h kline probe returned five rows.
+- Kraken: 3/3 checked public endpoints returned HTTP 200 and passed basic schema checks; OHLC returned 721 rows including the current uncommitted row, and Recent Trades returned 1,000 rows.
+- CoinGecko: the keyless ping endpoint returned HTTP 200. This is only a ping/health response; no market-data endpoint was tested, and no assumption of keyless data access is made.
+- No credentials or private endpoints were used; no account data, orders or fund movement occurred.
+
+This confirms actual runner reachability and response-shape compatibility for the small probes only. It does **not** yet prove backfill completeness, long-term reliability, legal/terms suitability, timestamp correctness over pagination, signal edge or profitability.

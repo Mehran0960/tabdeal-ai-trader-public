@@ -88,7 +88,7 @@ test("marks optional keyless source errors without blocking required providers",
     {provider: "binance", status: "reachable"},
     {provider: "binance", status: "reachable"},
     {provider: "kraken", status: "reachable"},
-    {provider: "kraken", status: "reachable"},
+    {provider: "kraken", status: "network_error"},
     {provider: "coingecko", status: "auth_required_or_access_restricted", optional: true}
   ];
   const summary = summarizeProviderReachability(results);
