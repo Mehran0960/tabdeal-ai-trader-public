@@ -1,6 +1,6 @@
 # Tabdeal AI Trader — Public Research Core
 
-> **Current automated status — 2026-11-26:** the public history pipeline and daily multi-asset research workflow are implemented; the initial history collection and end-to-end strategy report completed successfully. The latest screen read 66,464 source records, validated 17,516 Binance Spot 4h candles across BTC/ETH/SOL/XRP (4,379 per asset; no gaps or duplicates), and tested 36 fixed strategy/cost hypotheses. **No candidate passed the research gates; Paper promotion and live trading remain disabled.** [Latest research run](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631) · [Full report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631/artifacts/15102109708).
+> **Current automated status — 2026-11-26:** 15-minute public history capture and hourly multi-timeframe research are configured. The latest end-to-end run read 66,756 history records and validated 64,164 Binance Spot candles for BTC/ETH/SOL/XRP across 15m, 1h and 4h: all 12 asset/timeframe series were fresh, with zero gaps or duplicates. It evaluated 108 fixed strategy/cost hypotheses. **Zero candidates passed; Paper promotion and live trading remain disabled.** [Latest multi-timeframe run](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370) · [Full report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370/artifacts/15103963982).
 
 This repository is the sanitized, public research companion to the private operations repository [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader).
 
@@ -24,7 +24,7 @@ The active research lane now collects international public market history and sc
 - Research and risk-analysis functions.
 - Backtest helpers and a paper-simulation engine.
 - Automated syntax checks and tests on GitHub Actions.
-- Scheduled international Spot history capture and fixed-cost out-of-sample strategy research.
+- Scheduled international Spot history capture every 15 minutes and hourly fixed-cost multi-timeframe out-of-sample strategy research.
 
 **This repository does not contain an authenticated account client or a live order executor.** It cannot read balances, place/cancel orders, withdraw, transfer funds, or enable live trading. The scanner uses public GET endpoints only and requires no API key.
 
