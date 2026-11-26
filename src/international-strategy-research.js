@@ -377,7 +377,7 @@ function runInternationalStrategyResearchProfile({rows,nowMs=Date.now(),interval
 
 
 export function runInternationalStrategyResearch({
-  rows,nowMs=Date.now(),intervals=["15m","1h","4h"]
+  rows,nowMs=Date.now(),intervals=["15m","1h","4h","1d"]
 }={}){
   if(!Array.isArray(intervals)||intervals.length===0)fail("international_research_profiles_required");
   const selectedIntervals=[...new Set(intervals.map(value=>String(value)))];
