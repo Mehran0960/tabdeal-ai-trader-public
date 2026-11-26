@@ -193,3 +193,28 @@ test("pre-registers a daily horizon with 60 disjoint 30-day OOS windows and a fu
   assert.equal(report.researchCandidates.length,0);
   assert.equal(report.paperGate.passed,false);
 });
+
+
+test("aggregates excluded incomplete daily candles in the full multi-timeframe report",()=>{
+  const rows=[];
+  const duration=86_400_000;
+  for(const symbol of ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","DOGEUSDT"]){
+    for(let index=0;index<3;index++){
+      const openTimeMs=Date.UTC(2026,0,1)+index*duration;
+      rows.push({
+        recordType:"candle",provider:"binance_spot",symbol,
+        baseAsset:symbol.slice(0,-4),quoteAsset:"USDT",quoteUnit:"USDT",interval:"1d",
+        openTimeMs,closeTimeMs:openTimeMs+duration-1,
+        open:100,high:102,low:98,close:101,baseVolume:10,quoteVolume:1000,tradeCount:20
+      });
+    }
+  }
+  const partial=rows.find(row=>row.symbol==="BTCUSDT"&&row.openTimeMs===Date.UTC(2026,0,2));
+  partial.closeTimeMs-=1_000;
+  const report=runInternationalStrategyResearch({rows,nowMs:now,intervals:["1d"]});
+  assert.equal(report.dataQuality.excludedIncompleteCandleCount,1);
+  assert.equal(report.dataQuality.profiles[0].excludedIncompleteCandleCount,1);
+  assert.equal(report.dataQuality.profiles[0].excludedIncompleteBySymbol.BTCUSDT,1);
+  assert.equal(report.safety.exchangeOrdersPlaced,0);
+  assert.equal(report.paperGate.passed,false);
+});
