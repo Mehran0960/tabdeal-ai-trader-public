@@ -1,6 +1,6 @@
 # Tabdeal AI Trader — Public Research Core
 
-> **Current automated status — 2026-11-26:** 15-minute international-history capture and hourly research are configured. The latest completed backfill validated 15 Binance Spot series across five assets (BTC/ETH/SOL/XRP/DOGE) and three timeframes; 80,189 closed Binance candles were available, all 15 series were fresh, and no gaps or duplicates were detected. The screen tested 135 fixed hypotheses. **Zero candidates passed; Paper promotion and live trading remain disabled.** [Latest report](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288) · [Full JSON artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288/artifacts/15106840785).
+> **Current automated status — 2026-11-26:** the research collector now pre-registers four horizons (15m/1h/4h/1d). The latest completed report still covers the original three intraday horizons: 80,189 Binance Spot candles across five assets and 135 hypotheses; **zero candidates passed**. The new daily profile is being added with 60 non-overlapping 30-day OOS windows and a strict minimum of 2,563 closed daily candles per symbol before its 80/20 research split can qualify; a full 3,650-day backfill is triggered on merge, followed by a fresh research run. Paper promotion and live trading remain disabled. [Previous completed report](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288) · [Previous report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288/artifacts/15106840785).
 
 This repository is the sanitized, public research companion to the private operations repository [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader).
 
@@ -24,7 +24,7 @@ The active research lane now collects international public market history and sc
 - Research and risk-analysis functions.
 - Backtest helpers and a paper-simulation engine.
 - Automated syntax checks and tests on GitHub Actions.
-- Scheduled international Spot history capture every 15 minutes and hourly fixed-cost multi-timeframe out-of-sample strategy research.
+- Scheduled international Spot history capture every 15 minutes and hourly fixed-cost multi-timeframe out-of-sample strategy research across pre-registered 15m/1h/4h/daily profiles; daily backfill is bounded at 3,650 days.
 
 **This repository does not contain an authenticated account client or a live order executor.** It cannot read balances, place/cancel orders, withdraw, transfer funds, or enable live trading. The scanner uses public GET endpoints only and requires no API key. Daily Bitcoin Fear & Greed history from Alternative.me is captured separately with explicit attribution and a one-day conservative historical availability lag; it is context only, not an entry signal.
 
