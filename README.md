@@ -1,6 +1,17 @@
 # Tabdeal AI Trader — Public Research Core
 
-This repository is the sanitized, public research companion to a separate private operations repository.
+This repository is the sanitized, public research companion to the private operations repository [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader).
+
+
+## Relationship to the private core project
+
+This repository is the sanitized public research companion to the private [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader) repository. The two repositories are related parts of one engineering effort, not independent bots. The private repository contains the broader shared research/risk code and operational integration; this repository exposes a credential-free, reviewable Tabdeal research slice. The audited shared-file list, exact Git blob IDs, update/synchronization rule and security boundary are documented in [Repository relationship and shared components](docs/REPOSITORY-RELATIONSHIP.md).
+
+As audited on 2026-11-26, nine source files and seven test files in the two repositories have identical Git blob IDs. This proves byte-for-byte identity for those files at the audit point; it does not mean every file, venue adapter, workflow or deployment is shared.
+
+## Signal discovery is international; execution remains Tabdeal Spot
+
+The next research stage is to discover candidate signals from reliable, reachable international public market-data sources—starting with Binance Spot and Kraken Spot, with CoinGecko as optional broad-market context—then independently validate each candidate against fresh Tabdeal Spot data before any paper order is considered. External prices are research inputs, never Tabdeal execution prices. Match quote currencies, timestamps, pair identity and local basis; do not convert IRT to RIAL/TOMAN or infer an executable local price without verified semantics. The source reachability/terms/rate-limit matrix must be tested from the actual GitHub Actions runtime. See [Operating plan](docs/OPERATING-PLAN.md) and [Issue #10](https://github.com/Mehran0960/tabdeal-ai-trader-public/issues/10).
 
 ## Scope
 
