@@ -13,7 +13,7 @@ const NOW=Date.parse("2026-11-26T12:00:00.000Z");
 test("normalizes only fully closed Binance 4h candles",()=>{
   const rows=[
     [NOW-8*3600000,"100","110","95","105","10",NOW-4*3600000-1,"1050",20],
-    [NOW-4*3600000,"105","115","100","110","12",NOW-1,"1320",25]
+    [NOW,"105","115","100","110","12",NOW+4*3600000-1,"1320",25]
   ];
   const candles=normalizeBinanceKlines({symbol:"BTCUSDT",interval:"4h",rows,capturedAtMs:NOW});
   assert.equal(candles.length,1);
