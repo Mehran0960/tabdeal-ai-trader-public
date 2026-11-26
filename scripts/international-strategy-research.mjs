@@ -27,6 +27,7 @@ const lines=[
   "- Historical records read: "+rows.length,
   "- Fresh symbol/interval series: "+report.dataQuality.readySymbolCount+"/"+(report.dataQuality.profiles.length*4),
   "- Timeframes: "+report.source.intervals.join(", "),
+  ...report.dataQuality.profiles.map(profile=>"- "+profile.interval+": "+profile.readySymbolCount+"/4 fresh; "+profile.selectedRecordCount+" closed candles; candidates="+profile.researchCandidateCount),
   "- Fixed hypotheses evaluated: "+report.methodology.hypothesisCount,
   "- Research-only candidates: "+report.researchCandidates.length,
   "- Paper promotion allowed: no","- Exchange orders placed: 0","- Live trading enabled: false","",
