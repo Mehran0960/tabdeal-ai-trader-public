@@ -1,4 +1,4 @@
-import {backtestLongOnly,rollingOutOfSampleBacktest} from "./research.js";
+import {backtestLongOnly,rollingOutOfSampleBacktest,researchInternals} from "./research.js";
 
 export const INTERNATIONAL_RESEARCH_POLICY=Object.freeze({
   provider:"binance_spot",interval:"4h",resolutionSeconds:14_400,
@@ -111,6 +111,49 @@ export function benjaminiHochbergAdjust(hypotheses){
   }
   return hypotheses.map((item,index)=>({id:String(item.id??index),qValue:adjusted[index]}));
 }
+export function calculateContiguousOosBenchmark(candles,windows,{
+  feeBpsPerSide=0,slippageBpsPerSide=0,resolutionSeconds=INTERNATIONAL_RESEARCH_POLICY.resolutionSeconds
+}={}){
+  if(!Array.isArray(candles)||!Array.isArray(windows)||windows.length===0||
+     !finiteNonNegative(feeBpsPerSide)||!finiteNonNegative(slippageBpsPerSide)){
+    fail("international_research_benchmark_input_invalid");
+  }
+  const oneWayCost=(Number(feeBpsPerSide)+Number(slippageBpsPerSide))/10_000;
+  if(oneWayCost>=1)fail("international_research_benchmark_cost_invalid");
+  const segments=researchInternals.contiguousCandleSegments(candles,resolutionSeconds);
+  const segmentMap=new Map(segments.map(segment=>[segment.segmentIndex,segment]));
+  const groups=new Map();
+  for(const window of windows){
+    const segmentIndex=Number(window.segmentIndex);
+    if(!Number.isSafeInteger(segmentIndex)||!segmentMap.has(segmentIndex))continue;
+    const rows=groups.get(segmentIndex)||[];
+    rows.push(window);groups.set(segmentIndex,rows);
+  }
+  let compoundedFactor=1,segmentCount=0;
+  for(const [segmentIndex,items] of groups){
+    const segment=segmentMap.get(segmentIndex);
+    items.sort((a,b)=>Number(a.startIndex)-Number(b.startIndex));
+    const firstIndex=Math.min(...items.map(item=>Number(item.startIndex)));
+    const lastIndex=Math.max(...items.map(item=>Number(item.endIndex)));
+    const first=segment.candles[firstIndex],last=segment.candles[lastIndex];
+    if(!first||!last||!finitePositive(first.open)||!finitePositive(last.close)){
+      fail("international_research_benchmark_window_invalid");
+    }
+    const buyPrice=first.open*(1+oneWayCost);
+    const sellPrice=last.close*(1-oneWayCost);
+    compoundedFactor*=sellPrice/buyPrice;
+    segmentCount++;
+  }
+  if(segmentCount===0)fail("international_research_benchmark_has_no_valid_segments");
+  return {
+    benchmarkReturnPct:(compoundedFactor-1)*100,
+    benchmarkFinalEquity:INTERNATIONAL_RESEARCH_POLICY.initialCapital*compoundedFactor,
+    segmentCount,
+    roundTrips:segmentCount,
+    feeBpsPerSide:Number(feeBpsPerSide),
+    slippageBpsPerSide:Number(slippageBpsPerSide)
+  };
+}
 function costOptions(scenario,strategy){
   return {strategy,initialCapital:INTERNATIONAL_RESEARCH_POLICY.initialCapital,
     feeBps:scenario.feeBpsPerSide,slippageBps:scenario.slippageBpsPerSide,
@@ -120,7 +163,7 @@ function costOptions(scenario,strategy){
     stopAtrMultiple:INTERNATIONAL_RESEARCH_POLICY.stopAtrMultiple,
     maxDrawdownStop:INTERNATIONAL_RESEARCH_POLICY.maxDrawdownStop};
 }
-function summarizeOos(result){
+function summarizeOos(result,inputCandles,scenario){
   if(!result||result.available!==true)return {
     available:false,reason:result?.reason||"out_of_sample_unavailable",
     candleCount:Number(result?.candleCount||0),windowCount:Number(result?.windowCount||0),
@@ -133,8 +176,10 @@ function summarizeOos(result){
     available:true,method:result.method,windowCount:result.windowCount,
     minimumWindowsRequired:result.minimumWindowsRequired,
     compoundedReturnPct:result.compoundedReturnPct,
-    benchmarkCompoundedReturnPct:result.benchmarkCompoundedReturnPct,
-    compoundedExcessReturnPct:result.compoundedExcessReturnPct,
+    benchmarkCompoundedReturnPct:benchmark.benchmarkReturnPct,
+    compoundedExcessReturnPct:benchmarkExcessReturnPct,
+    independentWindowBenchmarkCompoundedReturnPct:result.benchmarkCompoundedReturnPct,
+    benchmarkRoundTrips:benchmark.roundTrips,
     outperformanceWindowRatePct:result.outperformanceWindowRatePct,
     wins,nonTies,signTestPValue:exactBinomialUpperTail(wins,nonTies),
     worstWindowReturnPct:result.worstWindowReturnPct,
@@ -157,6 +202,7 @@ function summarizeHoldout(result){
 function passCostCase(row){
   const policy=INTERNATIONAL_RESEARCH_POLICY;
   return row.oos?.available===true&&row.oos.windowCount>=policy.minimumWindows&&
+    Number(row.oos.compoundedReturnPct)>0&&Number(row.oos.compoundedExcessReturnPct)>0&&
     row.oos.totalTrades>=policy.minimumTrades&&
     Number(row.oos.outperformanceWindowRatePct)>=policy.minimumOutperformanceWindowRatePct&&
     Number(row.oos.worstWindowDrawdownPct)<=policy.maximumWorstWindowDrawdownPct;
@@ -225,7 +271,7 @@ export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
             ...options,trainBars:policy.trainBars,testBars:policy.testBars,
             stepBars:policy.stepBars,minimumWindows:policy.minimumWindows
           });
-          oos=summarizeOos(oosRaw);
+          oos=summarizeOos(oosRaw,discoveryCandles,scenario);
           try{
             const holdoutRaw=backtestLongOnly(holdoutCandles,{
               ...options,startIndex:policy.holdoutWarmupBars,endIndex:holdoutCandles.length-1
