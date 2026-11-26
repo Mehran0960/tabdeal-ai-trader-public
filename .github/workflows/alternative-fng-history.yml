@@ -1,6 +1,12 @@
 name: Alternative.me Fear and Greed Daily History
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "src/alternative-fng-history.js"
+      - "scripts/collect-alternative-fng-history.mjs"
+      - ".github/workflows/alternative-fng-history.yml"
   schedule:
     - cron: "10 6 * * *"
   workflow_dispatch:
