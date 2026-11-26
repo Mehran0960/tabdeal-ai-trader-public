@@ -19,7 +19,7 @@ export const INTERNATIONAL_STRATEGIES=Object.freeze(["ema-trend","donchian-break
 export const INTERNATIONAL_RESEARCH_PROFILES=Object.freeze({
   "15m":Object.freeze({
     ...INTERNATIONAL_RESEARCH_POLICY,interval:"15m",resolutionSeconds:900,
-    trainBars:250,testBars:15,stepBars:15,maximumLatestCandleAgeMs:60*60*1000,
+    trainBars:250,testBars:30,stepBars:30,maximumLatestCandleAgeMs:60*60*1000,
     costScenarios:Object.freeze([
       Object.freeze({id:"base",feeBpsPerSide:10,slippageBpsPerSide:20}),
       Object.freeze({id:"moderate",feeBpsPerSide:20,slippageBpsPerSide:40}),
@@ -391,7 +391,7 @@ export function runInternationalStrategyResearch({
     readySymbolCount:profile.dataQuality.readySymbolCount,
     readySymbols:profile.dataQuality.symbols.filter(row=>row.readyForResearch).map(row=>row.symbol),
     hypothesisCount:profile.methodology.hypothesisCount,
-    researchCandidateCount:profile.researchCandidates.length
+    researchCandidateCount:candidates.filter(candidate=>candidate.timeframe===profile.source.interval).length
   }));
   return {
     schemaVersion:2,reportType:"INTERNATIONAL_SPOT_MULTI_TIMEFRAME_STRATEGY_RESEARCH",
@@ -428,7 +428,6 @@ export function runInternationalStrategyResearch({
     dataQuality:{
       selectedRecordCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.selectedRecordCount,0),
       duplicateCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.duplicateCount,0),
-      ignoredRecordCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.ignoredRecordCount,0),
       readySymbolCount,profiles:profileSummaries,symbols:allReady
     },
     results,researchCandidates:candidates,
