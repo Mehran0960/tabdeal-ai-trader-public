@@ -8,14 +8,14 @@ The shared research, risk, price-unit and paper-simulation core is maintained in
 
 ## Verified current state — 2026-11-26
 
-- **International source reachability:** initial Binance Spot and Kraken Spot public probes passed from GitHub Actions. CoinGecko remains optional.
-- **Collection cadence:** the public history workflow is configured for a 15-minute schedule at minute 05/20/35/50; the latest push-triggered incremental capture completed with 1,188 Binance closed candles, 1,200 Kraken closed candles, 4/4 Tabdeal USDT books and zero source/series errors. The schedule is configured; its future scheduled invocations still need to be observed independently.
-- **Research cadence:** the multi-timeframe strategy workflow is configured hourly at minute 12 and has completed a full run.
-- **Historical research input:** 64,164 selected Binance Spot USDT candles cover BTC, ETH, SOL and XRP across 15m (11,592 candles), 1h (35,052) and 4h (17,520). All 12 symbol/timeframe series were fresh in the latest screen; no duplicates or missing intervals were detected.
-- **Strategy screen:** 108 fixed hypotheses (4 assets × 3 timeframes × 3 long-only strategies × 3 cost scenarios), with 68/109/108 sequential non-overlapping OOS windows by timeframe, 80/20 discovery/untouched-holdout splits, exact binomial sign tests and one Benjamini-Hochberg correction across the full family. Zero candidates passed all gates.
-- **What failed:** no 15m strategy produced positive net return in any cost case; the 1h profile produced one positive base-cost case (+0.45%) but it failed drawdown and untouched-holdout checks; the 4h profile had 3/12 positive base and 1/12 positive moderate cases, but no candidate survived severe-cost and all other promotion gates. No strategy is approved.
-- **Decision:** forward Paper for Tabdeal is **blocked by research evidence and local execution-data gaps**, not by a missing scheduler. Do not force a Paper trade or loosen gates to create activity. Live execution is not implemented and remains disabled.
-- **Latest report:** [GitHub Actions run 45795362370](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370) · [report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370/artifacts/15103963982).
+- **International sources:** Binance Spot and Kraken Spot public GET probes work from GitHub Actions. Kraken's DOGE/USD pair uses the XDGUSD alias; no USD/USDT price conversion is inferred. CoinGecko remains optional.
+- **History capture:** configured every 15 minutes at minute 05/20/35/50. After DOGE was registered, the auto-mode selector correctly chose a full backfill because one or more asset/timeframe series were missing. Backfill run [45797397256] completed successfully: 80,085 Binance closed candles, 10,800 Kraken closed candles, 5/5 Tabdeal USDT books, 10,800 cross-venue return comparisons, zero source/series errors. The append step added 35,050 records and identified 66,640 as duplicates already in the append-only history. This was a push-triggered backfill; scheduled cron delivery must still be monitored independently.
+- **Research cadence:** configured hourly at minute 12. Latest post-backfill report [run 45797841288] completed successfully and read 101,806 historical records.
+- **Research coverage:** 80,189 closed Binance Spot USDT candles across BTC, ETH, SOL, XRP and DOGE: 14,475 (15m), 43,815 (1h), and 21,899 (4h). All 15 asset/timeframe series were fresh; no gaps or duplicates were detected.
+- **Strategy screen:** 135 fixed hypotheses (5 assets × 3 timeframes × 3 long-only strategies × 3 cost scenarios), one global Benjamini-Hochberg correction, exact sign tests, and an 80/20 discovery/untouched-holdout split. **Zero candidates passed.**
+- **Net-positive OOS cases:** 15m 0/45; 1h 1/45 (XRP Donchian base +0.398%, but worst-window drawdown 1.595% breached the 1% gate and the untouched holdout returned -1.190%); 4h 4/45 (3 base, 1 moderate). The best 4h case was XRP Donchian base +2.445%, but its q-value was 0.09035 (>0.05) and benchmark-outperformance window rate was 57.41% (<60%). All severe-cost cases were unprofitable. DOGE was net-negative in all 27 of its hypotheses.
+- **Decision:** forward Paper for Tabdeal remains **blocked by research evidence and local execution-data gaps**. Do not force a Paper trade or loosen gates to create activity. Live execution is not implemented and remains disabled.
+- **Latest evidence:** [research run 45797841288](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288) · [report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288/artifacts/15106840785) · [backfill run 45797397256](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797397256) · [public CI 120/120](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841439).
 
 ## Stage 1 — international source discovery (initial reachability complete; ongoing quality monitoring)
 
@@ -35,7 +35,7 @@ Map only the same underlying asset and quote currency when comparing venues. Kee
 
 Continue collecting Tabdeal public Spot order-book observations for local validation. Current depth-stream diagnostics remain provisional until Tabdeal confirms snapshot/delta and sequence semantics. The currently tested Binance-style Spot @trade/@aggTrade topic names were rejected; do not guess undocumented Tabdeal topics or substitute a leveraged/FAPI stream.
 
-## Stage 3 — pre-registered strategy research (108-hypothesis multi-timeframe screen completed; no pass)
+## Stage 3 — pre-registered strategy research (135-hypothesis five-asset multi-timeframe screen completed; no pass)
 
 Evaluate deterministic hypotheses on sufficiently complete, timestamp-aligned multi-source history. Compare against simple trend/momentum and matched naive baselines. Use chronological train/validation/untouched holdout splits, walk-forward evaluation, multiple-testing correction, and realistic fees, spread, slippage, latency, partial fills and liquidity constraints. Order Block/SMC concepts remain optional unproven hypotheses; they are not a predetermined strategy or a reason to relax evidence requirements.
 
