@@ -22,7 +22,7 @@ test("normalizes only allowlisted, valid Binance Spot 4h USDT candles",()=>{
 });
 test("rejects conflicting duplicate bars and invalid quote-unit mapping",()=>{
   const first=candle("BTCUSDT",0);
-  assert.throws(()=>normalizeInternationalResearchRows([first,{...first,close:first.close*1.02}],
+  assert.throws(()=>normalizeInternationalResearchRows([first,{...first,baseVolume:first.baseVolume+1}],
     {nowMs:Date.UTC(2026,11,1)}),/conflicting_duplicate/);
   assert.throws(()=>normalizeInternationalResearchRows([{...first,quoteUnit:"TOMAN"}],
     {nowMs:Date.UTC(2026,11,1)}),/candle_invalid/);
