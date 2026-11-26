@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   normalizeInternationalResearchRows,exactBinomialUpperTail,
-  benjaminiHochbergAdjust,runInternationalStrategyResearch
+  benjaminiHochbergAdjust,calculateContiguousOosBenchmark,runInternationalStrategyResearch
 } from "../src/international-strategy-research.js";
 const interval=14_400_000,now=Date.parse("2026-11-26T12:00:00.000Z");
 function candle(symbol,index,close=100){
@@ -50,4 +50,22 @@ test("fails closed with no promotion when history is too short or stale",()=>{
   assert.equal(report.paperGate.passed,false);
   assert.equal(report.safety.exchangeOrdersPlaced,0);
   assert.equal(report.safety.liveTradingEnabled,false);
+});
+
+
+test("compounds buy-and-hold once per contiguous OOS segment, not once per fold",()=>{
+  const candles=Array.from({length:8},(_,index)=>({
+    time:1000+index*14_400,open:100,high:140,low:90,close:index===6?130:100,volume:1
+  }));
+  const windows=[
+    {segmentIndex:1,startIndex:1,endIndex:3},
+    {segmentIndex:1,startIndex:4,endIndex:6}
+  ];
+  const result=calculateContiguousOosBenchmark(candles,windows,{
+    feeBpsPerSide:10,slippageBpsPerSide:10
+  });
+  const expected=((130*0.998)/(100*1.002)-1)*100;
+  assert.equal(result.segmentCount,1);
+  assert.equal(result.roundTrips,1);
+  assert.ok(Math.abs(result.benchmarkReturnPct-expected)<1e-10);
 });
