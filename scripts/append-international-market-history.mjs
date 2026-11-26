@@ -74,7 +74,7 @@ export async function appendInternationalMarketSnapshot({
         typeof candle.symbol!=="string" ||
         typeof candle.baseAsset!=="string" ||
         !["USDT","USD"].includes(candle.quoteAsset) ||
-        !["15m","1h","4h"].includes(candle.interval) ||
+        !["15m","1h","4h","1d"].includes(candle.interval) ||
         !Number.isSafeInteger(candle.openTimeMs) ||
         !Number.isSafeInteger(candle.closeTimeMs) ||
         candle.closeTimeMs>=capturedAtMs ||
