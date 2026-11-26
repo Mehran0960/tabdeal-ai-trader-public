@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  INTERNATIONAL_MARKET_PAIRS,
   normalizeBinanceKlines,
   normalizeKrakenOhlc,
   normalizeTabdealBook,
@@ -158,4 +159,12 @@ test("collector uses only public GETs and returns no account or order capability
   assert.ok(requestPaths.includes("/r/api/v1/exchangeInfo"));
   assert.ok(requestPaths.includes("/r/api/v1/depth"));
   assert.ok(urls.every(item=>!/signature|apiKey|secret/i.test(item.url)));
+});
+
+
+test("pre-registers Dogecoin across Binance Spot, Kraken Spot and Tabdeal Spot",()=>{
+  const doge=INTERNATIONAL_MARKET_PAIRS.find(pair=>pair.baseAsset==="DOGE");
+  assert.deepEqual(doge,{
+    baseAsset:"DOGE",binanceSymbol:"DOGEUSDT",krakenPair:"XDGUSD",tabdealSymbol:"DOGEUSDT"
+  });
 });
