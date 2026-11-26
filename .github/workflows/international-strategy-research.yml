@@ -10,7 +10,7 @@ on:
       - "package.json"
       - ".github/workflows/international-strategy-research.yml"
   schedule:
-    - cron: "37 3 * * *"
+    - cron: "12 * * * *"
   workflow_dispatch:
 
 permissions:
