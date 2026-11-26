@@ -67,11 +67,11 @@ These limitations are why international public OHLCV/trade sources are the next 
 
 ## Current research outcome — 2026-11-26
 
-The public companion now includes a scheduled fixed-hypothesis strategy screen at `src/international-strategy-research.js` and `scripts/international-strategy-research.mjs`. It reads only public historical Binance Spot USDT 4h candles and does not read account data, use private credentials, write D1, or access order endpoints.
+The public companion now includes a scheduled fixed-hypothesis multi-timeframe strategy screen at `src/international-strategy-research.js` and `scripts/international-strategy-research.mjs`. The latest verified run ([45795362370](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370)) read 66,756 history records and evaluated 108 hypotheses across BTC/ETH/SOL/XRP, 15m/1h/4h and three long-only strategies under three provisional cost scenarios. It selected 64,164 Binance Spot USDT candles; all 12 asset/timeframe series were fresh with no detected gaps or duplicates.
 
-The latest verified run ([45792326631](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631)) evaluated 36 hypotheses across BTC/ETH/SOL/XRP and three long-only strategy families under three provisional cost scenarios. It found zero candidates that met all OOS, holdout, benchmark, drawdown and multiple-testing gates. Paper promotion remains blocked; no live executor exists in the public repository.
+Zero candidates passed the full OOS, net-return, benchmark-consistency, drawdown, multiple-testing and untouched-holdout gates. A single 1h base-cost case and four 4h cases showed positive net OOS returns, but none passed the promotion policy. The research workflow is configured hourly; history capture is configured every 15 minutes (minute 05/20/35/50).
 
-Do not mirror this venue/data-specific runner into the private core as a shared module. The shared neutral research/risk files remain governed by the existing blob-level synchronization rule. Do not reactivate the private Nobitex UDF Paper workflow for Tabdeal; a future Tabdeal Paper adapter must use fresh Tabdeal-local data and separate tests.
+No forward Paper candidate currently exists. The public repository remains credential-free, has no account client or live executor, and has placed no exchange orders. Do not lower gates or create simulated positions just to produce activity.
 
 ## Relationship to paused automation
 
