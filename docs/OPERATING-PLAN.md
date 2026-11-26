@@ -8,11 +8,14 @@ The shared research, risk, price-unit and paper-simulation core is maintained in
 
 ## Verified current state — 2026-11-26
 
-- **International source reachability:** initial Binance Spot and Kraken Spot public probes passed from GitHub Actions. CoinGecko remains optional only.
-- **Historical research input:** the history branch contains 4h Binance Spot USDT candles for BTC, ETH, SOL and XRP. The latest screen validated 4,379 candles per asset (17,516 total), with zero detected duplicates or gaps and a fresh latest closed bar.
-- **Strategy screen:** 36 fixed hypotheses (4 assets × 3 long-only strategies × 3 cost scenarios), 108 non-overlapping OOS windows per asset, an 80/20 discovery/untouched-holdout split, exact binomial sign test and Benjamini-Hochberg correction. The final report found **zero candidates passing all gates**.
-- **Decision:** forward Paper for Tabdeal is **blocked by research evidence**, not merely awaiting a scheduler. Do not force a Paper trade or loosen gates to create activity. Live execution is not implemented and remains disabled.
-- **Latest report:** [GitHub Actions run 45792326631](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631) · [report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631/artifacts/15102109708). The research workflow runs daily and can also be started manually.
+- **International source reachability:** initial Binance Spot and Kraken Spot public probes passed from GitHub Actions. CoinGecko remains optional.
+- **Collection cadence:** the public history workflow is configured for a 15-minute schedule at minute 05/20/35/50; the latest push-triggered incremental capture completed with 1,188 Binance closed candles, 1,200 Kraken closed candles, 4/4 Tabdeal USDT books and zero source/series errors. The schedule is configured; its future scheduled invocations still need to be observed independently.
+- **Research cadence:** the multi-timeframe strategy workflow is configured hourly at minute 12 and has completed a full run.
+- **Historical research input:** 64,164 selected Binance Spot USDT candles cover BTC, ETH, SOL and XRP across 15m (11,592 candles), 1h (35,052) and 4h (17,520). All 12 symbol/timeframe series were fresh in the latest screen; no duplicates or missing intervals were detected.
+- **Strategy screen:** 108 fixed hypotheses (4 assets × 3 timeframes × 3 long-only strategies × 3 cost scenarios), with 68/109/108 sequential non-overlapping OOS windows by timeframe, 80/20 discovery/untouched-holdout splits, exact binomial sign tests and one Benjamini-Hochberg correction across the full family. Zero candidates passed all gates.
+- **What failed:** no 15m strategy produced positive net return in any cost case; the 1h profile produced one positive base-cost case (+0.45%) but it failed drawdown and untouched-holdout checks; the 4h profile had 3/12 positive base and 1/12 positive moderate cases, but no candidate survived severe-cost and all other promotion gates. No strategy is approved.
+- **Decision:** forward Paper for Tabdeal is **blocked by research evidence and local execution-data gaps**, not by a missing scheduler. Do not force a Paper trade or loosen gates to create activity. Live execution is not implemented and remains disabled.
+- **Latest report:** [GitHub Actions run 45795362370](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370) · [report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370/artifacts/15103963982).
 
 ## Stage 1 — international source discovery (initial reachability complete; ongoing quality monitoring)
 
@@ -32,7 +35,7 @@ Map only the same underlying asset and quote currency when comparing venues. Kee
 
 Continue collecting Tabdeal public Spot order-book observations for local validation. Current depth-stream diagnostics remain provisional until Tabdeal confirms snapshot/delta and sequence semantics. The currently tested Binance-style Spot @trade/@aggTrade topic names were rejected; do not guess undocumented Tabdeal topics or substitute a leveraged/FAPI stream.
 
-## Stage 3 — pre-registered strategy research (first fixed screen completed; no pass)
+## Stage 3 — pre-registered strategy research (108-hypothesis multi-timeframe screen completed; no pass)
 
 Evaluate deterministic hypotheses on sufficiently complete, timestamp-aligned multi-source history. Compare against simple trend/momentum and matched naive baselines. Use chronological train/validation/untouched holdout splits, walk-forward evaluation, multiple-testing correction, and realistic fees, spread, slippage, latency, partial fills and liquidity constraints. Order Block/SMC concepts remain optional unproven hypotheses; they are not a predetermined strategy or a reason to relax evidence requirements.
 
