@@ -69,3 +69,53 @@ test("compounds buy-and-hold once per contiguous OOS segment, not once per fold"
   assert.equal(result.roundTrips,1);
   assert.ok(Math.abs(result.benchmarkReturnPct-expected)<1e-10);
 });
+
+
+
+test("supports independently validated 15m, 1h and 4h research profiles",()=>{
+  const rows=[];
+  for(const interval of ["15m","1h","4h"]){
+    const duration=({"15m":900_000,"1h":3_600_000,"4h":14_400_000})[interval];
+    for(let index=0;index<3;index++){
+      const openTimeMs=Date.UTC(2026,0,1)+index*duration;
+      const price=100+index;
+      rows.push({
+        recordType:"candle",provider:"binance_spot",symbol:"BTCUSDT",
+        baseAsset:"BTC",quoteAsset:"USDT",quoteUnit:"USDT",interval,
+        openTimeMs,closeTimeMs:openTimeMs+duration-1,
+        open:price,high:price*1.01,low:price*0.99,close:price,
+        baseVolume:10,quoteVolume:price*10,tradeCount:100
+      });
+    }
+  }
+  for(const interval of ["15m","1h","4h"]){
+    const result=normalizeInternationalResearchRows(rows,{nowMs:now,interval});
+    assert.equal(result.candlesBySymbol.BTCUSDT.length,3);
+    assert.equal(result.qualityBySymbol.BTCUSDT.candleCount,3);
+  }
+});
+
+test("applies global multiple-testing correction across all interval profiles",()=>{
+  const report=runInternationalStrategyResearch({
+    rows:[candle("BTCUSDT",0),candle("BTCUSDT",1)],
+    nowMs:now,
+    intervals:["15m","1h","4h"]
+  });
+  assert.equal(report.methodology.hypothesisCount,108);
+  assert.deepEqual(report.source.intervals,["15m","1h","4h"]);
+  assert.equal(report.results.length,108);
+  assert.equal(report.dataQuality.profiles.length,3);
+  assert.ok(report.results.every(row=>Number(row.qValue)===1));
+  assert.equal(report.researchCandidates.length,0);
+  assert.equal(report.paperGate.passed,false);
+  assert.equal(report.safety.liveTradingEnabled,false);
+});
+
+test("does not mix quote units or execute external market prices",()=>{
+  const report=runInternationalStrategyResearch({rows:[],nowMs:now,intervals:["1h"]});
+  assert.equal(report.source.quoteAsset,"USDT");
+  assert.equal(report.source.internationalQuotesNotUsedAsTabdealExecutionPrices,true);
+  assert.equal(report.paperGate.passed,false);
+  assert.equal(report.safety.accountDataRead,false);
+  assert.equal(report.safety.exchangeOrdersPlaced,0);
+});

@@ -15,6 +15,36 @@ export const INTERNATIONAL_COST_SCENARIOS=Object.freeze([
   Object.freeze({id:"severe",feeBpsPerSide:35,slippageBpsPerSide:50})
 ]);
 export const INTERNATIONAL_STRATEGIES=Object.freeze(["ema-trend","donchian-breakout","rsi-mean-reversion"]);
+
+export const INTERNATIONAL_RESEARCH_PROFILES=Object.freeze({
+  "15m":Object.freeze({
+    ...INTERNATIONAL_RESEARCH_POLICY,interval:"15m",resolutionSeconds:900,
+    trainBars:250,testBars:30,stepBars:30,maximumLatestCandleAgeMs:60*60*1000,
+    costScenarios:Object.freeze([
+      Object.freeze({id:"base",feeBpsPerSide:10,slippageBpsPerSide:20}),
+      Object.freeze({id:"moderate",feeBpsPerSide:20,slippageBpsPerSide:40}),
+      Object.freeze({id:"severe",feeBpsPerSide:35,slippageBpsPerSide:70})
+    ])
+  }),
+  "1h":Object.freeze({
+    ...INTERNATIONAL_RESEARCH_POLICY,interval:"1h",resolutionSeconds:3600,
+    trainBars:500,testBars:60,stepBars:60,maximumLatestCandleAgeMs:4*60*60*1000,
+    costScenarios:Object.freeze([
+      Object.freeze({id:"base",feeBpsPerSide:10,slippageBpsPerSide:15}),
+      Object.freeze({id:"moderate",feeBpsPerSide:20,slippageBpsPerSide:30}),
+      Object.freeze({id:"severe",feeBpsPerSide:35,slippageBpsPerSide:55})
+    ])
+  }),
+  "4h":Object.freeze({
+    ...INTERNATIONAL_RESEARCH_POLICY,interval:"4h",resolutionSeconds:14_400,
+    costScenarios:INTERNATIONAL_COST_SCENARIOS
+  })
+});
+function researchProfile(interval){
+  const profile=INTERNATIONAL_RESEARCH_PROFILES[String(interval||"4h")];
+  if(!profile)fail("international_research_interval_not_allowlisted");
+  return profile;
+}
 const intervalMs=INTERNATIONAL_RESEARCH_POLICY.resolutionSeconds*1000;
 const allowedSymbols=new Set(INTERNATIONAL_RESEARCH_POLICY.symbols);
 const finitePositive=value=>Number.isFinite(Number(value))&&Number(value)>0;
@@ -25,14 +55,16 @@ function sameCandle(a,b){
   return ["openTimeMs","closeTimeMs","open","high","low","close","baseVolume","quoteVolume","tradeCount"]
     .every(key=>a[key]===b[key]);
 }
-export function normalizeInternationalResearchRows(rows,{nowMs=Date.now()}={}){
+export function normalizeInternationalResearchRows(rows,{nowMs=Date.now(),interval="4h"}={}){
   if(!Array.isArray(rows)||!Number.isSafeInteger(nowMs))fail("international_research_rows_or_clock_invalid");
-  const bySymbol=new Map(INTERNATIONAL_RESEARCH_POLICY.symbols.map(symbol=>[symbol,new Map()]));
+  const policy=researchProfile(interval),intervalMs=policy.resolutionSeconds*1000;
+  const allowedSymbols=new Set(policy.symbols);
+  const bySymbol=new Map(policy.symbols.map(symbol=>[symbol,new Map()]));
   let ignoredRecordCount=0,duplicateCount=0;
   for(const row of rows){
     if(!isRecord(row))fail("international_research_record_invalid");
     if(row.recordType!=="candle"||row.provider!==INTERNATIONAL_RESEARCH_POLICY.provider||
-       row.interval!==INTERNATIONAL_RESEARCH_POLICY.interval||!allowedSymbols.has(String(row.symbol||"").toUpperCase())){
+       row.interval!==policy.interval||!allowedSymbols.has(String(row.symbol||"").toUpperCase())){
       ignoredRecordCount++;continue;
     }
     const symbol=String(row.symbol).toUpperCase(),base=symbol.slice(0,-4);
@@ -83,7 +115,7 @@ export function normalizeInternationalResearchRows(rows,{nowMs=Date.now()}={}){
       latestOpenTime:latest?new Date(latest.openTimeMs).toISOString():null,
       latestClosedAt:latest?new Date(latestClosedAtMs).toISOString():null,
       latestClosedAgeMs:latestAgeMs,
-      fresh:latestAgeMs!==null&&latestAgeMs>=0&&latestAgeMs<=INTERNATIONAL_RESEARCH_POLICY.maximumLatestCandleAgeMs
+      fresh:latestAgeMs!==null&&latestAgeMs>=0&&latestAgeMs<=policy.maximumLatestCandleAgeMs
     };
   }
   return {candlesBySymbol,qualityBySymbol,ignoredRecordCount,duplicateCount,
@@ -112,7 +144,7 @@ export function benjaminiHochbergAdjust(hypotheses){
   return hypotheses.map((item,index)=>({id:String(item.id??index),qValue:adjusted[index]}));
 }
 export function calculateContiguousOosBenchmark(candles,windows,{
-  feeBpsPerSide=0,slippageBpsPerSide=0,resolutionSeconds=INTERNATIONAL_RESEARCH_POLICY.resolutionSeconds
+  feeBpsPerSide=0,slippageBpsPerSide=0,resolutionSeconds=INTERNATIONAL_RESEARCH_POLICY.resolutionSeconds,initialCapital=INTERNATIONAL_RESEARCH_POLICY.initialCapital
 }={}){
   if(!Array.isArray(candles)||!Array.isArray(windows)||windows.length===0||
      !finiteNonNegative(feeBpsPerSide)||!finiteNonNegative(slippageBpsPerSide)){
@@ -147,33 +179,33 @@ export function calculateContiguousOosBenchmark(candles,windows,{
   if(segmentCount===0)fail("international_research_benchmark_has_no_valid_segments");
   return {
     benchmarkReturnPct:(compoundedFactor-1)*100,
-    benchmarkFinalEquity:INTERNATIONAL_RESEARCH_POLICY.initialCapital*compoundedFactor,
+    benchmarkFinalEquity:Number(initialCapital)*compoundedFactor,
     segmentCount,
     roundTrips:segmentCount,
     feeBpsPerSide:Number(feeBpsPerSide),
     slippageBpsPerSide:Number(slippageBpsPerSide)
   };
 }
-function costOptions(scenario,strategy){
-  return {strategy,initialCapital:INTERNATIONAL_RESEARCH_POLICY.initialCapital,
+function costOptions(scenario,strategy,policy=INTERNATIONAL_RESEARCH_POLICY){
+  return {strategy,initialCapital:policy.initialCapital,
     feeBps:scenario.feeBpsPerSide,slippageBps:scenario.slippageBpsPerSide,
-    resolutionSeconds:INTERNATIONAL_RESEARCH_POLICY.resolutionSeconds,
-    riskFraction:INTERNATIONAL_RESEARCH_POLICY.riskFraction,
-    maxExposureFraction:INTERNATIONAL_RESEARCH_POLICY.maxExposureFraction,
-    stopAtrMultiple:INTERNATIONAL_RESEARCH_POLICY.stopAtrMultiple,
-    maxDrawdownStop:INTERNATIONAL_RESEARCH_POLICY.maxDrawdownStop};
+    resolutionSeconds:policy.resolutionSeconds,
+    riskFraction:policy.riskFraction,
+    maxExposureFraction:policy.maxExposureFraction,
+    stopAtrMultiple:policy.stopAtrMultiple,
+    maxDrawdownStop:policy.maxDrawdownStop};
 }
-function summarizeOos(result,inputCandles,scenario){
+function summarizeOos(result,inputCandles,scenario,policy=INTERNATIONAL_RESEARCH_POLICY){
   if(!result||result.available!==true)return {
     available:false,reason:result?.reason||"out_of_sample_unavailable",
     candleCount:Number(result?.candleCount||0),windowCount:Number(result?.windowCount||0),
-    minimumWindowsRequired:INTERNATIONAL_RESEARCH_POLICY.minimumWindows,exchangeOrdersPlaced:0
+    minimumWindowsRequired:policy.minimumWindows,exchangeOrdersPlaced:0
   };
   const windows=Array.isArray(result.windows)?result.windows:[];
   const wins=windows.filter(row=>Number(row.excessReturnPct)>0).length;
   const nonTies=windows.filter(row=>Number(row.excessReturnPct)!==0).length;
   const pValue=exactBinomialUpperTail(wins,nonTies);
-  const benchmark=calculateContiguousOosBenchmark(inputCandles,windows,scenario);
+  const benchmark=calculateContiguousOosBenchmark(inputCandles,windows,{...scenario,resolutionSeconds:policy.resolutionSeconds,initialCapital:policy.initialCapital});
   const strategyReturnPct=Number(result.compoundedReturnPct);
   const benchmarkExcessReturnPct=strategyReturnPct-benchmark.benchmarkReturnPct;
   return {
@@ -203,15 +235,14 @@ function summarizeHoldout(result){
     sortino:result.metrics.sortino,haltedByDrawdown:result.haltedByDrawdown
   };
 }
-function passCostCase(row){
-  const policy=INTERNATIONAL_RESEARCH_POLICY;
+function passCostCase(row,policy=INTERNATIONAL_RESEARCH_POLICY){
   return row.oos?.available===true&&row.oos.windowCount>=policy.minimumWindows&&
     Number(row.oos.compoundedReturnPct)>0&&Number(row.oos.compoundedExcessReturnPct)>0&&
     row.oos.totalTrades>=policy.minimumTrades&&
     Number(row.oos.outperformanceWindowRatePct)>=policy.minimumOutperformanceWindowRatePct&&
     Number(row.oos.worstWindowDrawdownPct)<=policy.maximumWorstWindowDrawdownPct;
 }
-function buildResearchCandidates(results){
+function buildResearchCandidates(results,policy=INTERNATIONAL_RESEARCH_POLICY){
   const grouped=new Map();
   for(const row of results){const key=row.symbol+"|"+row.strategy;
     if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(row);}
@@ -220,16 +251,16 @@ function buildResearchCandidates(results){
     if(!["ema-trend","donchian-breakout"].includes(rows[0]?.strategy))continue;
     const cases=Object.fromEntries(rows.map(row=>[row.costScenario,row]));
     const base=cases.base,moderate=cases.moderate,severe=cases.severe;
-    if(!base||!moderate||!severe||!rows.every(passCostCase))continue;
+    if(!base||!moderate||!severe||!rows.every(row=>passCostCase(row,policy)))continue;
     if(rows.some(row=>!row.holdout?.available||Number(row.holdout.totalReturnPct)<=0||
        Number(row.holdout.excessReturnPct)<=0||Number(row.holdout.tradeCount)<5))continue;
     const maxQ=Math.max(...rows.map(row=>Number(row.qValue??1)));
-    if(maxQ>INTERNATIONAL_RESEARCH_POLICY.maximumFdrQValue)continue;
+    if(maxQ>policy.maximumFdrQValue)continue;
     if(!(Number(base.oos.compoundedReturnPct)>0&&Number(moderate.oos.compoundedReturnPct)>0&&
-       Number(severe.oos.compoundedReturnPct)>=INTERNATIONAL_RESEARCH_POLICY.minimumSevereStressReturnPct))continue;
+       Number(severe.oos.compoundedReturnPct)>=policy.minimumSevereStressReturnPct))continue;
     candidates.push({
       symbol:base.symbol,baseAsset:base.baseAsset,quoteAsset:"USDT",quotePriceUnit:"USDT",
-      timeframe:"4h",resolution:"240",strategy:base.strategy,
+      timeframe:policy.interval,resolution:String(policy.resolutionSeconds/60),strategy:base.strategy,
       baseReturnPct:base.oos.compoundedReturnPct,
       moderateStressReturnPct:moderate.oos.compoundedReturnPct,
       severeStressReturnPct:severe.oos.compoundedReturnPct,
@@ -249,8 +280,9 @@ function buildResearchCandidates(results){
   return candidates.sort((a,b)=>b.severeStressReturnPct-a.severeStressReturnPct||
     a.benjaminiHochbergQValue-b.benjaminiHochbergQValue||a.symbol.localeCompare(b.symbol));
 }
-export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
-  const normalized=normalizeInternationalResearchRows(rows,{nowMs}),policy=INTERNATIONAL_RESEARCH_POLICY;
+function runInternationalStrategyResearchProfile({rows,nowMs=Date.now(),interval="4h"}={}){
+  const policy=researchProfile(interval);
+  const normalized=normalizeInternationalResearchRows(rows,{nowMs,interval:policy.interval});
   const hypotheses=[],researchResults=[],sourceReadiness=[];
   for(const symbol of policy.symbols){
     const candles=normalized.candlesBySymbol[symbol],quality=normalized.qualityBySymbol[symbol];
@@ -264,18 +296,18 @@ export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
       untouchedHoldoutCandleCount:Math.max(0,holdoutCandles.length-policy.holdoutWarmupBars),
       readyForResearch:usable
     });
-    for(const strategy of INTERNATIONAL_STRATEGIES)for(const scenario of INTERNATIONAL_COST_SCENARIOS){
-      const id=[symbol,strategy,scenario.id].join("|");
+    for(const strategy of INTERNATIONAL_STRATEGIES)for(const scenario of policy.costScenarios){
+      const id=[policy.interval,symbol,strategy,scenario.id].join("|");
       let oos={available:false,reason:usable?"not_run":"history_or_freshness_gate"};
       let holdout={available:false,reason:usable?"not_run":"history_or_freshness_gate"};
       if(usable){
         try{
-          const options=costOptions(scenario,strategy);
+          const options=costOptions(scenario,strategy,policy);
           const oosRaw=rollingOutOfSampleBacktest(discoveryCandles,{
             ...options,trainBars:policy.trainBars,testBars:policy.testBars,
             stepBars:policy.stepBars,minimumWindows:policy.minimumWindows
           });
-          oos=summarizeOos(oosRaw,discoveryCandles,scenario);
+          oos=summarizeOos(oosRaw,discoveryCandles,scenario,policy);
           try{
             const holdoutRaw=backtestLongOnly(holdoutCandles,{
               ...options,startIndex:policy.holdoutWarmupBars,endIndex:holdoutCandles.length-1
@@ -286,7 +318,7 @@ export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
       }
       hypotheses.push({id,pValue:oos.available?oos.signTestPValue:1});
       researchResults.push({
-        id,symbol,baseAsset:symbol.slice(0,-4),strategy,costScenario:scenario.id,
+        id,interval:policy.interval,resolution:String(policy.resolutionSeconds/60),symbol,baseAsset:symbol.slice(0,-4),strategy,costScenario:scenario.id,
         feeBpsPerSide:scenario.feeBpsPerSide,slippageBpsPerSide:scenario.slippageBpsPerSide,
         oos,holdout,qValue:1
       });
@@ -294,10 +326,10 @@ export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
   }
   const qValues=new Map(benjaminiHochbergAdjust(hypotheses).map(item=>[item.id,item.qValue]));
   for(const row of researchResults)row.qValue=qValues.get(row.id)??1;
-  const candidates=buildResearchCandidates(researchResults);
+  const candidates=buildResearchCandidates(researchResults,policy);
   const readyCount=sourceReadiness.filter(item=>item.readyForResearch).length;
   return {
-    schemaVersion:1,reportType:"INTERNATIONAL_SPOT_STRATEGY_RESEARCH",
+    schemaVersion:1,reportType:"INTERNATIONAL_SPOT_STRATEGY_RESEARCH_PROFILE",
     generatedAt:new Date(nowMs).toISOString(),
     source:{provider:policy.provider,quoteAsset:"USDT",interval:policy.interval,
       symbols:[...policy.symbols],dataMode:"public historical research data only",
@@ -306,7 +338,7 @@ export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
       discoveryFraction:policy.discoveryFraction,untouchedHoldoutFraction:1-policy.discoveryFraction,
       trainBars:policy.trainBars,testBars:policy.testBars,stepBars:policy.stepBars,
       minimumOutOfSampleWindows:policy.minimumWindows,strategies:[...INTERNATIONAL_STRATEGIES],
-      costScenarios:INTERNATIONAL_COST_SCENARIOS.map(item=>({...item,assumptionOnly:true})),
+      costScenarios:policy.costScenarios.map(item=>({...item,assumptionOnly:true})),
       statisticalTest:"one-sided exact binomial sign test on non-tied OOS window excess returns",
       multiplicityCorrection:"Benjamini-Hochberg across the complete fixed asset × strategy × cost family",
       hypothesisCount:hypotheses.length,
@@ -330,5 +362,81 @@ export function runInternationalStrategyResearch({rows,nowMs=Date.now()}={}){
       accountDataRead:false,privateExchangeEndpointsUsed:false,d1Written:false,
       exchangeOrdersPlaced:0,fundsMoved:false,liveTradingEnabled:false},
     status:readyCount===0?"data_not_ready":candidates.length?"research_candidates_found":"no_strategy_passed_research_gates"
+  };
+}
+
+
+export function runInternationalStrategyResearch({
+  rows,nowMs=Date.now(),intervals=["15m","1h","4h"]
+}={}){
+  if(!Array.isArray(intervals)||intervals.length===0)fail("international_research_profiles_required");
+  const selectedIntervals=[...new Set(intervals.map(value=>String(value)))];
+  if(selectedIntervals.some(value=>!INTERNATIONAL_RESEARCH_PROFILES[value]))fail("international_research_interval_not_allowlisted");
+  const profiles=selectedIntervals.map(interval=>runInternationalStrategyResearchProfile({rows,nowMs,interval}));
+  const results=profiles.flatMap(profile=>profile.results);
+  const adjusted=benjaminiHochbergAdjust(results.map(row=>({
+    id:row.id,pValue:row.oos?.available?row.oos.signTestPValue:1
+  })));
+  const qValues=new Map(adjusted.map(item=>[item.id,item.qValue]));
+  for(const row of results)row.qValue=qValues.get(row.id)??1;
+  const candidates=profiles.flatMap(profile=>
+    buildResearchCandidates(profile.results,researchProfile(profile.source.interval)));
+  for(const candidate of candidates)candidate.multipleTestingHypothesisCount=results.length;
+  const readySymbolCount=profiles.reduce((sum,profile)=>sum+profile.dataQuality.readySymbolCount,0);
+  const allReady=profiles.flatMap(profile=>profile.dataQuality.symbols);
+  const profileSummaries=profiles.map(profile=>({
+    interval:profile.source.interval,resolution:profile.source.interval,
+    selectedRecordCount:profile.dataQuality.selectedRecordCount,
+    duplicateCount:profile.dataQuality.duplicateCount,
+    ignoredRecordCount:profile.dataQuality.ignoredRecordCount,
+    readySymbolCount:profile.dataQuality.readySymbolCount,
+    readySymbols:profile.dataQuality.symbols.filter(row=>row.readyForResearch).map(row=>row.symbol),
+    hypothesisCount:profile.methodology.hypothesisCount,
+    researchCandidateCount:candidates.filter(candidate=>candidate.timeframe===profile.source.interval).length
+  }));
+  return {
+    schemaVersion:2,reportType:"INTERNATIONAL_SPOT_MULTI_TIMEFRAME_STRATEGY_RESEARCH",
+    generatedAt:new Date(nowMs).toISOString(),
+    source:{
+      provider:"binance_spot",quoteAsset:"USDT",intervals:selectedIntervals,
+      symbols:[...INTERNATIONAL_RESEARCH_POLICY.symbols],
+      dataMode:"public historical research data only",
+      internationalQuotesNotUsedAsTabdealExecutionPrices:true
+    },
+    methodology:{
+      profiles:profiles.map(profile=>({
+        interval:profile.source.interval,resolutionSeconds:researchProfile(profile.source.interval).resolutionSeconds,
+        discoveryFraction:profile.methodology.discoveryFraction,
+        untouchedHoldoutFraction:profile.methodology.untouchedHoldoutFraction,
+        trainBars:profile.methodology.trainBars,testBars:profile.methodology.testBars,
+        stepBars:profile.methodology.stepBars,minimumOutOfSampleWindows:profile.methodology.minimumOutOfSampleWindows,
+        costScenarios:profile.methodology.costScenarios
+      })),
+      strategies:[...INTERNATIONAL_STRATEGIES],
+      statisticalTest:"one-sided exact binomial sign test on non-tied OOS window excess returns",
+      multiplicityCorrection:"Benjamini-Hochberg across the complete fixed asset × interval × strategy × cost family",
+      hypothesisCount:results.length,
+      caveats:[
+        "Strategy parameters are fixed before evaluation; train bars provide indicator warm-up and are not an optimizer.",
+        "OOS windows are sequential non-overlapping test blocks; this does not remove regime dependence or all serial dependence.",
+        "Sign-test p-values and FDR are research filters, not proof of a causal or persistent edge.",
+        "The final 20% of each symbol/interval history is kept out of OOS selection and used as an untouched holdout.",
+        "Cost scenarios vary by timeframe and are provisional assumptions, not verified Tabdeal fee tiers, rebates, spread, impact or fill costs.",
+        "Only Binance Spot USDT candles are analyzed. Kraken USD is not merged with USDT or treated as a Tabdeal price.",
+        "No IRT market is analyzed because its price/settlement unit remains unverified."
+      ]
+    },
+    dataQuality:{
+      selectedRecordCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.selectedRecordCount,0),
+      duplicateCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.duplicateCount,0),
+      readySymbolCount,profiles:profileSummaries,symbols:allReady
+    },
+    results,researchCandidates:candidates,
+    paperGate:{passed:false,liveTradingEnabled:false,exchangeOrdersPlaced:0,
+      reason:"External research only; Paper requires a fresh Tabdeal-local Spot confirmation and separately audited execution-cost/unit controls."},
+    safety:{unauthenticatedHistoricalDataOnly:true,privateCredentialsUsed:false,
+      accountDataRead:false,privateExchangeEndpointsUsed:false,d1Written:false,
+      exchangeOrdersPlaced:0,fundsMoved:false,liveTradingEnabled:false},
+    status:readySymbolCount===0?"data_not_ready":candidates.length?"research_candidates_found":"no_strategy_passed_research_gates"
   };
 }
