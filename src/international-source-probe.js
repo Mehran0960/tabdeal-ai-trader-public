@@ -45,18 +45,6 @@ export const INTERNATIONAL_SOURCE_PROBES = Object.freeze([
     url: "https://api.coingecko.com/api/v3/ping"
   },
   {
-    id: "coinmetrics_reference_rate",
-    provider: "coinmetrics",
-    optional: true,
-    url: "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=ReferenceRateUSD&frequency=1d&limit_per_asset=2"
-  },
-  {
-    id: "defillama_stablecoin_history",
-    provider: "defillama",
-    optional: true,
-    url: "https://stablecoins.llama.fi/stablecoincharts/all"
-  },
-  {
     id: "alternative_fear_greed",
     provider: "alternative_me",
     optional: true,
@@ -215,7 +203,7 @@ function classifyHttpFailure(status) {
 
 export function summarizeProviderReachability(results) {
   const providers = {};
-  for (const provider of ["binance", "kraken", "coingecko", "coinmetrics", "defillama", "alternative_me"]) {
+  for (const provider of ["binance", "kraken", "coingecko", "alternative_me"]) {
     const rows = results.filter(item => item.provider === provider);
     if (!rows.length) continue;
     const reachableCount = rows.filter(item => item.status === "reachable").length;
@@ -307,7 +295,7 @@ export async function runInternationalSourceProbe({
   return {
     schemaVersion: 1,
     capturedAt: now().toISOString(),
-    mode: "unauthenticated_public_market_data_get_only",
+    mode: "unauthenticated_public_market_and_context_get_only",
     requiredProviderStatus: requiredReady ? "reachable" : "partial_or_blocked",
     providers: providerSummary,
     probes: results,
