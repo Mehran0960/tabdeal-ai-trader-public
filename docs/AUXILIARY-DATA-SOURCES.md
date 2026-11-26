@@ -11,7 +11,7 @@ Status: **Binance/Kraken/Tabdeal market-data lanes are active; Alternative.me da
 | Local executable market | Tabdeal Spot public API/book | Symbol availability, quote unit, spread, local depth and final local-price confirmation | Partial; IRT meaning and depth sequence semantics remain unresolved |
 | Network/on-chain metrics | Coin Metrics Community API | Slow regime / network-flow context | Excluded from automation: Community data is non-commercial only |
 | DeFi / stablecoin context | DefiLlama free API | Daily/weekly ecosystem TVL and stablecoin regime context | Excluded from automation pending written permission |
-| Broad crypto sentiment | Alternative.me Fear & Greed API | Daily BTC-oriented sentiment context; never a stand-alone entry signal | Daily history capture added in PR; commercial use requires attribution |
+| Broad crypto sentiment | Alternative.me Fear & Greed API | Daily BTC-oriented sentiment context; never a stand-alone entry signal | PR #20 merged; initial push-triggered capture appended 3,217 daily observations across 106 monthly partitions; next scheduled event still needs verification |
 | Independent asset metadata/market overview | CoinGecko Demo API | Asset identity, aggregate market-cap/volume sanity check; not local execution pricing | Optional; free Demo key required |
 | Alternative asset metadata | CoinMarketCap Basic | Fallback metadata/market overview if CoinGecko coverage is inadequate | Redundant alternative; do not integrate both without a demonstrated need |
 | Macro-economic series | FRED API | Slow macro regime context (rates/liquidity); not intraday entry timing | Later; free registration/API key required |
@@ -21,7 +21,7 @@ Status: **Binance/Kraken/Tabdeal market-data lanes are active; Alternative.me da
 
 Run [45866076255](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45866076255) from GitHub Actions verified that Binance, Kraken, CoinGecko's public ping, Coin Metrics Community, DefiLlama and Alternative.me returned valid narrow response shapes. The one-off tests were diagnostic only. Because the current Coin Metrics Community and DefiLlama terms do not clear this intended automated trading use, those two sources are not in the scheduled probe list and are not used as strategy inputs. CoinGecko's full market-data API was not tested. Alternative.me is the only additional provider cleared for recurring context capture under its published commercial-attribution rule.
 
-The new daily collector is implemented in [PR #20](https://github.com/Mehran0960/tabdeal-ai-trader-public/pull/20); it is not considered operational until the PR is merged and a scheduled capture is observed.
+The daily collector was merged in [PR #20](https://github.com/Mehran0960/tabdeal-ai-trader-public/pull/20). Initial push-triggered capture [run 45867859878](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45867859878) succeeded on 2026-11-26: it returned 3,217 observations through 2026-11-26, appended all 3,217 into 106 monthly JSONL partitions, and preserved attribution. The daily cron (06:10 UTC) has not yet been independently observed; do not mark scheduled operation fully verified until an event=schedule run succeeds.
 
 ## Priority sources
 
@@ -63,7 +63,7 @@ Official terms: [Telegram Bot Developer Terms, section 4.3](https://telegram.org
 
 ## Integration sequence
 
-1. Capture Alternative.me's full daily FNG history once per day through its official public API, preserve provider attribution and append-only provenance, and make the historical feature available only after a conservative 24-hour lag. The collector uses one unauthenticated GET and no API key.
+1. The Alternative.me daily FNG collector is implemented. Verify the first event=schedule run, then continue capturing the full daily history through its official public API; preserve attribution and append-only provenance, with historical features available only after a conservative 24-hour lag. It uses one unauthenticated GET and no API key.
 2. For any metric used, document exact definition, asset coverage, units, frequency, historical depth, update latency, methodology changes, attribution and free-tier limitations.
 3. Run an ablation study: baseline market-data strategy versus baseline plus exactly one context feature at a time. Use the existing fixed train/OOS/holdout split, global multiple-testing correction and realistic costs. Reject features that merely restate price/volume or fail to improve net outcome and drawdown.
 4. Keep external data as research context. Confirm all eligible candidates on fresh Tabdeal Spot quotes and local order books; IRT remains disabled for execution until denomination/settlement are verified.
