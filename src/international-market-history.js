@@ -14,8 +14,8 @@ export const INTERNATIONAL_MARKET_PAIRS = Object.freeze([
 
 export const INTERNATIONAL_INTERVALS = Object.freeze([
   {interval:"15m", durationMs:900_000, krakenMinutes:15, maxBackfillDays:30, incrementalBars:100},
-  {interval:"1h", durationMs:3_600_000, krakenMinutes:60, maxBackfillDays:90, incrementalBars:100},
-  {interval:"4h", durationMs:14_400_000, krakenMinutes:240, maxBackfillDays:365, incrementalBars:100}
+  {interval:"1h", durationMs:3_600_000, krakenMinutes:60, maxBackfillDays:365, incrementalBars:100},
+  {interval:"4h", durationMs:14_400_000, krakenMinutes:240, maxBackfillDays:730, incrementalBars:100}
 ]);
 
 const finite = value => Number.isFinite(Number(value));
@@ -133,11 +133,18 @@ export function normalizeKrakenOhlc({baseAsset, pairKey, interval, rows, capture
 }
 
 export function normalizeTabdealBook({symbol, market, depth, capturedAtMs}) {
+  const expectedSymbol=String(symbol||"").toUpperCase();
+  const expectedBase=expectedSymbol.endsWith("USDT")?expectedSymbol.slice(0,-4):"";
+  const actualSymbol=String(market?.symbol||"").toUpperCase();
+  const actualBase=String(market?.baseAsset||"").toUpperCase();
   const quoteAsset = String(market?.quoteAsset || "").toUpperCase();
-  if (!isRecord(market) || market.status !== "TRADING" ||
+  if (!isRecord(market) || !expectedBase || actualSymbol!==expectedSymbol ||
+      actualBase!==expectedBase || quoteAsset!=="USDT") {
+    return {symbol:expectedSymbol,status:"market_symbol_or_asset_mismatch",capturedAtMs,quoteUnit:"USDT"};
+  }
+  if (market.status !== "TRADING" ||
       market.isSpotTradingAllowed !== true ||
-      !Array.isArray(market.permissions) || !market.permissions.includes("SPOT") ||
-      quoteAsset !== "USDT") {
+      !Array.isArray(market.permissions) || !market.permissions.includes("SPOT")) {
     return {symbol,status:"market_not_active_usdt_spot",capturedAtMs,quoteUnit:"USDT"};
   }
   if (!isRecord(depth) || !Array.isArray(depth.bids) || !Array.isArray(depth.asks)) {
@@ -261,10 +268,24 @@ function findKrakenPair(assetPairs,pairName) {
 }
 
 function isActiveTabdealSpot(market) {
-  return isRecord(market) && market.status==="TRADING" &&
-    market.isSpotTradingAllowed===true && Array.isArray(market.permissions) &&
-    market.permissions.includes("SPOT") &&
-    String(market.quoteAsset||"").toUpperCase()==="USDT";
+  return isRecord(market) && typeof market.symbol==="string" &&
+    typeof market.baseAsset==="string" && typeof market.quoteAsset==="string" &&
+    market.status==="TRADING" && market.isSpotTradingAllowed===true &&
+    Array.isArray(market.permissions) && market.permissions.includes("SPOT") &&
+    String(market.quoteAsset).toUpperCase()==="USDT";
+}
+
+export function indexActiveTabdealSpotMarkets(payload) {
+  if (!Array.isArray(payload)) fail("tabdeal_exchange_info_invalid");
+  const activeBySymbol=new Map();
+  const duplicateSymbols=new Set();
+  for (const market of payload) {
+    if (!isActiveTabdealSpot(market)) continue;
+    const symbol=market.symbol.trim().toUpperCase();
+    if (activeBySymbol.has(symbol)) duplicateSymbols.add(symbol);
+    else activeBySymbol.set(symbol,market);
+  }
+  return {activeBySymbol,duplicateSymbols:[...duplicateSymbols].sort()};
 }
 
 function isoMonth(timeMs) {
@@ -282,7 +303,7 @@ export async function runInternationalMarketCollection({
   timeoutMs=12_000,
   mode="auto",
   historyPresent=false,
-  backfillDays=365,
+  backfillDays=730,
   pairs=INTERNATIONAL_MARKET_PAIRS,
   intervals=INTERNATIONAL_INTERVALS,
   requestSpacingMs=100,
@@ -291,7 +312,7 @@ export async function runInternationalMarketCollection({
   tabdealBase=TABDEAL_BASE
 }={}) {
   if (!["auto","incremental","backfill"].includes(mode)) fail("international_collection_mode_invalid");
-  if (!Number.isSafeInteger(Number(backfillDays)) || Number(backfillDays)<1 || Number(backfillDays)>365) {
+  if (!Number.isSafeInteger(Number(backfillDays)) || Number(backfillDays)<1 || Number(backfillDays)>730) {
     fail("international_backfill_days_invalid");
   }
   const effectiveMode=mode==="auto"?(historyPresent?"incremental":"backfill"):mode;
@@ -420,11 +441,15 @@ export async function runInternationalMarketCollection({
   } catch (error) {
     errors.push({provider:"tabdeal",code:String(error?.message||error).slice(0,100)});
   }
-  const activeBySymbol=new Map(tabdealMarkets.filter(isActiveTabdealSpot).map(row=>[
-    String(row.symbol).toUpperCase(),row
-  ]));
+  const {activeBySymbol,duplicateSymbols}=indexActiveTabdealSpotMarkets(tabdealMarkets);
   for (const pair of pairs) {
-    const market=activeBySymbol.get(pair.tabdealSymbol);
+    const requestedSymbol=String(pair.tabdealSymbol).toUpperCase();
+    const market=activeBySymbol.get(requestedSymbol);
+    if (duplicateSymbols.includes(requestedSymbol)) {
+      providerCounts.tabdeal.failedBooks++;
+      books.push({symbol:requestedSymbol,status:"duplicate_market_metadata",quoteUnit:"USDT",capturedAtMs:now()});
+      continue;
+    }
     if (!market) {
       providerCounts.tabdeal.failedBooks++;
       books.push({symbol:pair.tabdealSymbol,status:"not_active_usdt_spot",quoteUnit:"USDT",capturedAtMs:now()});

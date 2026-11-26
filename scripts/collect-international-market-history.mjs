@@ -12,7 +12,7 @@ function getArg(name,fallback) {
 const outputPath=getArg("--output",path.join("artifacts","international-market-history","latest.json"));
 const historyDir=getArg("--history-dir",process.env.INTERNATIONAL_HISTORY_DIR||path.join("signal-history","data","international-market-history"));
 const requestedMode=getArg("--mode","auto");
-const backfillDays=Number(getArg("--backfill-days",process.env.INTERNATIONAL_BACKFILL_DAYS||365));
+const backfillDays=Number(getArg("--backfill-days",process.env.INTERNATIONAL_BACKFILL_DAYS||730));
 let historyPresent=false;
 try {
   const files=await readdir(historyDir);

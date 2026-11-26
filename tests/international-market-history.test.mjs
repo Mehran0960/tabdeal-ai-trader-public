@@ -4,6 +4,7 @@ import {
   normalizeBinanceKlines,
   normalizeKrakenOhlc,
   normalizeTabdealBook,
+  indexActiveTabdealSpotMarkets,
   compareCrossVenueCandleReturns,
   runInternationalMarketCollection
 } from "../src/international-market-history.js";
@@ -83,6 +84,20 @@ test("normalizes Tabdeal USDT Spot depth and its public execution filters",()=>{
   assert.equal(book.bestAsk,101);
   assert.equal(book.marketRules.minNotional,"10");
   assert.equal(book.quoteUnit,"USDT");
+});
+
+test("rejects mismatched Tabdeal symbol metadata and duplicate active markets",()=>{
+  const market={symbol:"ETHUSDT",baseAsset:"ETH",status:"TRADING",isSpotTradingAllowed:true,
+    permissions:["SPOT"],quoteAsset:"USDT"};
+  const depth={bids:[["100","1"]],asks:[["101","1"]]};
+  const mismatched=normalizeTabdealBook({symbol:"BTCUSDT",market,depth,capturedAtMs:NOW});
+  assert.equal(mismatched.status,"market_symbol_or_asset_mismatch");
+  const duplicate=indexActiveTabdealSpotMarkets([
+    {...market,symbol:"BTCUSDT",baseAsset:"BTC"},
+    {...market,symbol:"BTCUSDT",baseAsset:"BTC"}
+  ]);
+  assert.deepEqual(duplicate.duplicateSymbols,["BTCUSDT"]);
+  assert.equal(duplicate.activeBySymbol.has("BTCUSDT"),true);
 });
 
 test("fails closed on crossed Tabdeal books",()=>{

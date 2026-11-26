@@ -22,9 +22,9 @@ on:
           - incremental
           - backfill
       backfill_days:
-        description: Backfill horizon (4h uses up to 365 days; 1h 90 days; 15m 30 days)
+        description: Backfill horizon (4h uses up to 730 days; 1h 365 days; 15m 30 days)
         required: false
-        default: "365"
+        default: "730"
         type: string
 
 permissions:
@@ -54,11 +54,12 @@ jobs:
         shell: bash
         env:
           EVENT_MODE: ${{ inputs.mode || 'auto' }}
-          BACKFILL_DAYS: ${{ inputs.backfill_days || '365' }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days || '730' }}
         run: |
           MODE="$EVENT_MODE"
           if [ "$MODE" = "auto" ]; then
-            if [ -d signal-history/data/international-market-history ] &&                find signal-history/data/international-market-history -maxdepth 1 -type f -name '*.jsonl' | grep -q .; then
+            if [ -d signal-history/data/international-market-history ] && \
+               find signal-history/data/international-market-history -maxdepth 1 -type f -name '*.jsonl' | grep -q .; then
               MODE="incremental"
             else
               MODE="backfill"

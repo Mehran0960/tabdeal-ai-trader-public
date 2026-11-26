@@ -7,7 +7,7 @@ Status: read-only collector implemented; its first backfill and scheduled captur
 - **Signal discovery/history:** Binance Spot public Market Data Only REST endpoints, with Kraken Spot OHLC as an independent cross-source reference.
 - **Execution venue:** Tabdeal Spot only. The collector captures Tabdeal's current USDT-quoted Spot books and exchange filters, but never treats Binance/Kraken prices as Tabdeal executable prices.
 - **Supported initial universe:** BTC, ETH, SOL and XRP, each against USDT on Binance and Tabdeal; corresponding USD pairs on Kraken. IRT pairs remain excluded while IRT denomination/settlement semantics are unresolved.
-- **Intervals:** 15m, 1h and 4h. The initial backfill is capped at 30 days for 15m, 90 days for 1h and 365 days for 4h. The 4h series is the first candidate for the existing strict research/Paper policy, which is defined for 4h. Shorter intervals provide context and later hypothesis tests.
+- **Intervals:** 15m, 1h and 4h. The initial backfill is capped at 30 days for 15m, 90 days for 1h and 730 days for 4h. The 4h series is the first candidate for the existing strict research/Paper policy, which is defined for 4h. Shorter intervals provide context and later hypothesis tests.
 - **Collection cadence:** GitHub Actions every 15 minutes, with bounded request spacing and append-only deduplication. Scheduled Actions are best-effort; gaps are measured, never forward-filled.
 - **Storage:** monthly JSONL records in the `signal-history` branch. The branch contains only public market data and compact local Tabdeal book snapshots; it never stores API credentials, balances, user data or exchange account information.
 
