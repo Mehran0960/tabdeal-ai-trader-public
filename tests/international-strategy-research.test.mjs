@@ -27,6 +27,40 @@ test("rejects conflicting duplicate bars and invalid quote-unit mapping",()=>{
   assert.throws(()=>normalizeInternationalResearchRows([{...first,quoteUnit:"TOMAN"}],
     {nowMs:Date.UTC(2026,11,1)}),/candle_invalid/);
 });
+test("excludes early-closed historical candles and reports the resulting time gap",()=>{
+  const duration=86_400_000;
+  const base=Date.UTC(2018,1,7);
+  const full=(index)=>({
+    recordType:"candle",provider:"binance_spot",symbol:"BTCUSDT",baseAsset:"BTC",
+    quoteAsset:"USDT",quoteUnit:"USDT",interval:"1d",
+    openTimeMs:base+index*duration,closeTimeMs:base+(index+1)*duration-1,
+    open:100,high:102,low:98,close:101,baseVolume:10,quoteVolume:1000,tradeCount:20
+  });
+  const partial={...full(1),closeTimeMs:base+duration+10*60*60*1000-1};
+  const result=normalizeInternationalResearchRows(
+    [full(0),partial,full(2),full(3)],
+    {nowMs:Date.UTC(2026,11,1),interval:"1d"}
+  );
+  assert.equal(result.candlesBySymbol.BTCUSDT.length,3);
+  assert.equal(result.excludedIncompleteCandleCount,1);
+  assert.equal(result.excludedIncompleteBySymbol.BTCUSDT,1);
+  assert.equal(result.qualityBySymbol.BTCUSDT.gapCount,1);
+  assert.equal(result.qualityBySymbol.BTCUSDT.maximumGapIntervals,2);
+});
+
+test("rejects close timestamps extending beyond the registered candle interval",()=>{
+  const duration=86_400_000;
+  const row={
+    recordType:"candle",provider:"binance_spot",symbol:"BTCUSDT",baseAsset:"BTC",
+    quoteAsset:"USDT",quoteUnit:"USDT",interval:"1d",
+    openTimeMs:Date.UTC(2018,1,7),closeTimeMs:Date.UTC(2018,1,9),
+    open:100,high:102,low:98,close:101,baseVolume:10,quoteVolume:1000,tradeCount:20
+  };
+  assert.throws(()=>normalizeInternationalResearchRows([row],{
+    nowMs:Date.UTC(2026,11,1),interval:"1d"
+  }),/candle_invalid_BTCUSDT/);
+});
+
 test("deduplicates identical candle observations",()=>{
   const row=candle("ETHUSDT",0);
   const result=normalizeInternationalResearchRows([row,{...row}],{nowMs:Date.UTC(2026,11,1)});

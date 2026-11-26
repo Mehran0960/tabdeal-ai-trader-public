@@ -70,7 +70,8 @@ export function normalizeInternationalResearchRows(rows,{nowMs=Date.now(),interv
   const policy=researchProfile(interval),intervalMs=policy.resolutionSeconds*1000;
   const allowedSymbols=new Set(policy.symbols);
   const bySymbol=new Map(policy.symbols.map(symbol=>[symbol,new Map()]));
-  let ignoredRecordCount=0,duplicateCount=0;
+  let ignoredRecordCount=0,duplicateCount=0,excludedIncompleteCandleCount=0;
+  const excludedIncompleteBySymbol=Object.fromEntries(policy.symbols.map(symbol=>[symbol,0]));
   for(const row of rows){
     if(!isRecord(row))fail("international_research_record_invalid");
     if(row.recordType!=="candle"||row.provider!==INTERNATIONAL_RESEARCH_POLICY.provider||
@@ -87,9 +88,11 @@ export function normalizeInternationalResearchRows(rows,{nowMs=Date.now(),interv
       baseVolume:Number(row.baseVolume),quoteVolume:row.quoteVolume===null?null:Number(row.quoteVolume),
       tradeCount:Number(row.tradeCount)
     };
+    const expectedCloseTimeMs=openTimeMs+intervalMs-1;
     if(candle.baseAsset!==base||candle.quoteAsset!=="USDT"||candle.quoteUnit!=="USDT"||
        !Number.isSafeInteger(openTimeMs)||!Number.isSafeInteger(closeTimeMs)||
-       openTimeMs<=0||openTimeMs%intervalMs!==0||closeTimeMs!==openTimeMs+intervalMs-1||
+       openTimeMs<=0||openTimeMs%intervalMs!==0||
+       closeTimeMs<openTimeMs||closeTimeMs>expectedCloseTimeMs||
        closeTimeMs>=nowMs||![candle.open,candle.high,candle.low,candle.close].every(finitePositive)||
        !finiteNonNegative(candle.baseVolume)||
        !(candle.quoteVolume===null||finiteNonNegative(candle.quoteVolume))||
@@ -97,6 +100,14 @@ export function normalizeInternationalResearchRows(rows,{nowMs=Date.now(),interv
        candle.high<Math.max(candle.open,candle.close,candle.low)||
        candle.low>Math.min(candle.open,candle.close,candle.high)){
       fail("international_research_candle_invalid_"+symbol);
+    }
+    // Historical exchange interruptions can produce an early-closed candle.
+    // It is structurally valid but does not represent a full interval, so exclude
+    // it explicitly and let the normal contiguous-segment/gap rules handle the hole.
+    if(closeTimeMs<expectedCloseTimeMs){
+      excludedIncompleteCandleCount++;
+      excludedIncompleteBySymbol[symbol]++;
+      continue;
     }
     const map=bySymbol.get(symbol),prior=map.get(openTimeMs);
     if(prior){
@@ -129,6 +140,7 @@ export function normalizeInternationalResearchRows(rows,{nowMs=Date.now(),interv
     };
   }
   return {candlesBySymbol,qualityBySymbol,ignoredRecordCount,duplicateCount,
+    excludedIncompleteCandleCount,excludedIncompleteBySymbol,
     selectedRecordCount:Object.values(qualityBySymbol).reduce((sum,item)=>sum+item.candleCount,0)};
 }
 export function exactBinomialUpperTail(wins,total){
@@ -399,6 +411,8 @@ export function runInternationalStrategyResearch({
     selectedRecordCount:profile.dataQuality.selectedRecordCount,
     duplicateCount:profile.dataQuality.duplicateCount,
     ignoredRecordCount:profile.dataQuality.ignoredRecordCount,
+    excludedIncompleteCandleCount:profile.dataQuality.excludedIncompleteCandleCount,
+    excludedIncompleteBySymbol:profile.dataQuality.excludedIncompleteBySymbol,
     readySymbolCount:profile.dataQuality.readySymbolCount,
     readySymbols:profile.dataQuality.symbols.filter(row=>row.readyForResearch).map(row=>row.symbol),
     hypothesisCount:profile.methodology.hypothesisCount,
@@ -439,6 +453,7 @@ export function runInternationalStrategyResearch({
     dataQuality:{
       selectedRecordCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.selectedRecordCount,0),
       duplicateCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.duplicateCount,0),
+      excludedIncompleteCandleCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.excludedIncompleteCandleCount,0),
       readySymbolCount,profiles:profileSummaries,symbols:allReady
     },
     results,researchCandidates:candidates,
