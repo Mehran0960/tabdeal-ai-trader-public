@@ -2,7 +2,7 @@ import {backtestLongOnly,rollingOutOfSampleBacktest,researchInternals} from "./r
 
 export const INTERNATIONAL_RESEARCH_POLICY=Object.freeze({
   provider:"binance_spot",interval:"4h",resolutionSeconds:14_400,
-  symbols:Object.freeze(["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT"]),
+  symbols:Object.freeze(["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","DOGEUSDT"]),
   discoveryFraction:0.8,holdoutWarmupBars:60,trainBars:250,testBars:30,stepBars:30,
   minimumWindows:60,maximumLatestCandleAgeMs:12*60*60*1000,
   riskFraction:0.0025,maxExposureFraction:0.2,stopAtrMultiple:2.5,maxDrawdownStop:0.1,
