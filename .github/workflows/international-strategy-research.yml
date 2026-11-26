@@ -6,6 +6,8 @@ on:
     paths:
       - "src/international-strategy-research.js"
       - "scripts/international-strategy-research.mjs"
+      - "tests/international-strategy-research.test.mjs"
+      - "package.json"
       - ".github/workflows/international-strategy-research.yml"
   schedule:
     - cron: "37 3 * * *"
