@@ -1,0 +1,93 @@
+name: International Market History Capture
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/international-market-history.js"
+      - "scripts/collect-international-market-history.mjs"
+      - "scripts/append-international-market-history.mjs"
+      - ".github/workflows/international-market-history.yml"
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Collection mode
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - incremental
+          - backfill
+      backfill_days:
+        description: Backfill horizon (4h uses up to 730 days; 1h 365 days; 15m 30 days)
+        required: false
+        default: "730"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: international-market-history-write
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check out private-safe append-only public history branch
+        uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: ${{ github.token }}
+      - name: Select history collection mode
+        id: mode
+        shell: bash
+        env:
+          EVENT_MODE: ${{ inputs.mode || 'auto' }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days || '730' }}
+        run: |
+          MODE="$EVENT_MODE"
+          if [ "$MODE" = "auto" ]; then
+            if [ -d signal-history/data/international-market-history ] && \
+               find signal-history/data/international-market-history -maxdepth 1 -type f -name '*.jsonl' | grep -q .; then
+              MODE="incremental"
+            else
+              MODE="backfill"
+            fi
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "backfill_days=$BACKFILL_DAYS" >> "$GITHUB_OUTPUT"
+      - name: Collect closed international candles and local Tabdeal book snapshots
+        run: node scripts/collect-international-market-history.mjs --mode "${{ steps.mode.outputs.mode }}" --backfill-days "${{ steps.mode.outputs.backfill_days }}" --history-dir signal-history/data/international-market-history
+      - name: Preserve sanitized capture report briefly
+        uses: actions/upload-artifact@v4
+        with:
+          name: international-market-history-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/international-market-history/latest.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Append deduplicated candle and Tabdeal book history
+        run: node scripts/append-international-market-history.mjs artifacts/international-market-history/latest.json signal-history/data/international-market-history
+      - name: Commit and push new history only when changed
+        shell: bash
+        run: |
+          cd signal-history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/international-market-history/
+          if git diff --cached --quiet; then
+            echo "No new international market data; history unchanged."
+          else
+            git commit -m "data: append international market history"
+            git push origin signal-history
+          fi
