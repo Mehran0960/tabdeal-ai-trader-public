@@ -72,10 +72,10 @@ test("compounds buy-and-hold once per contiguous OOS segment, not once per fold"
 
 
 
-test("supports independently validated 15m, 1h and 4h research profiles",()=>{
+test("supports independently validated 15m, 1h, 4h and daily research profiles",()=>{
   const rows=[];
-  for(const interval of ["15m","1h","4h"]){
-    const duration=({"15m":900_000,"1h":3_600_000,"4h":14_400_000})[interval];
+  for(const interval of ["15m","1h","4h","1d"]){
+    const duration=({"15m":900_000,"1h":3_600_000,"4h":14_400_000,"1d":86_400_000})[interval];
     for(let index=0;index<3;index++){
       const openTimeMs=Date.UTC(2026,0,1)+index*duration;
       const price=100+index;
@@ -88,7 +88,7 @@ test("supports independently validated 15m, 1h and 4h research profiles",()=>{
       });
     }
   }
-  for(const interval of ["15m","1h","4h"]){
+  for(const interval of ["15m","1h","4h","1d"]){
     const result=normalizeInternationalResearchRows(rows,{nowMs:now,interval});
     assert.equal(result.candlesBySymbol.BTCUSDT.length,3);
     assert.equal(result.qualityBySymbol.BTCUSDT.candleCount,3);
@@ -99,13 +99,13 @@ test("applies global multiple-testing correction across all interval profiles",(
   const report=runInternationalStrategyResearch({
     rows:[candle("BTCUSDT",0),candle("BTCUSDT",1)],
     nowMs:now,
-    intervals:["15m","1h","4h"]
+    intervals:["15m","1h","4h","1d"]
   });
-  assert.equal(report.methodology.hypothesisCount,135);
-  assert.deepEqual(report.source.intervals,["15m","1h","4h"]);
+  assert.equal(report.methodology.hypothesisCount,180);
+  assert.deepEqual(report.source.intervals,["15m","1h","4h","1d"]);
   assert.deepEqual(report.source.symbols,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","DOGEUSDT"]);
-  assert.equal(report.results.length,135);
-  assert.equal(report.dataQuality.profiles.length,3);
+  assert.equal(report.results.length,180);
+  assert.equal(report.dataQuality.profiles.length,4);
   assert.ok(report.results.every(row=>Number(row.qValue)===1));
   assert.equal(report.researchCandidates.length,0);
   assert.equal(report.paperGate.passed,false);
@@ -128,4 +128,34 @@ test("accepts DOGEUSDT as a pre-registered Binance Spot research asset",()=>{
   assert.equal(result.candlesBySymbol.DOGEUSDT.length,1);
   assert.equal(result.selectedRecordCount,1);
   assert.equal(result.qualityBySymbol.DOGEUSDT.candleCount,1);
+});
+
+
+test("pre-registers a daily horizon with 60 disjoint 30-day OOS windows and a full 80/20 split",()=>{
+  const rows=[];
+  const duration=86_400_000;
+  for(const symbol of ["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","DOGEUSDT"]){
+    for(let index=0;index<3;index++){
+      const openTimeMs=Date.UTC(2026,0,1)+index*duration;
+      const price=100+index;
+      rows.push({
+        recordType:"candle",provider:"binance_spot",symbol,
+        baseAsset:symbol.slice(0,-4),quoteAsset:"USDT",quoteUnit:"USDT",interval:"1d",
+        openTimeMs,closeTimeMs:openTimeMs+duration-1,
+        open:price,high:price*1.01,low:price*0.99,close:price,
+        baseVolume:10,quoteVolume:price*10,tradeCount:100
+      });
+    }
+  }
+  const report=runInternationalStrategyResearch({rows,nowMs:now,intervals:["1d"]});
+  assert.equal(report.methodology.hypothesisCount,45);
+  const daily=report.methodology.profiles[0];
+  assert.equal(daily.interval,"1d");
+  assert.equal(daily.resolutionSeconds,86_400);
+  assert.equal(daily.trainBars,250);
+  assert.equal(daily.testBars,30);
+  assert.equal(daily.stepBars,30);
+  assert.equal(daily.minimumOutOfSampleWindows,60);
+  assert.equal(report.researchCandidates.length,0);
+  assert.equal(report.paperGate.passed,false);
 });

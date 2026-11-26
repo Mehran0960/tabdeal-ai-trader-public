@@ -16,7 +16,8 @@ export const INTERNATIONAL_MARKET_PAIRS = Object.freeze([
 export const INTERNATIONAL_INTERVALS = Object.freeze([
   {interval:"15m", durationMs:900_000, krakenMinutes:15, maxBackfillDays:30, incrementalBars:100},
   {interval:"1h", durationMs:3_600_000, krakenMinutes:60, maxBackfillDays:365, incrementalBars:100},
-  {interval:"4h", durationMs:14_400_000, krakenMinutes:240, maxBackfillDays:730, incrementalBars:100}
+  {interval:"4h", durationMs:14_400_000, krakenMinutes:240, maxBackfillDays:730, incrementalBars:100},
+  {interval:"1d", durationMs:86_400_000, krakenMinutes:1440, maxBackfillDays:3650, incrementalBars:100}
 ]);
 
 const finite = value => Number.isFinite(Number(value));
@@ -316,7 +317,7 @@ export async function runInternationalMarketCollection({
   tabdealBase=TABDEAL_BASE
 }={}) {
   if (!["auto","incremental","backfill"].includes(mode)) fail("international_collection_mode_invalid");
-  if (!Number.isSafeInteger(Number(backfillDays)) || Number(backfillDays)<1 || Number(backfillDays)>730) {
+  if (!Number.isSafeInteger(Number(backfillDays)) || Number(backfillDays)<1 || Number(backfillDays)>3650) {
     fail("international_backfill_days_invalid");
   }
   const effectiveMode=mode==="auto"?(historyPresent?"incremental":"backfill"):mode;

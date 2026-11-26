@@ -38,6 +38,16 @@ export const INTERNATIONAL_RESEARCH_PROFILES=Object.freeze({
   "4h":Object.freeze({
     ...INTERNATIONAL_RESEARCH_POLICY,interval:"4h",resolutionSeconds:14_400,
     costScenarios:INTERNATIONAL_COST_SCENARIOS
+  }),
+  "1d":Object.freeze({
+    ...INTERNATIONAL_RESEARCH_POLICY,interval:"1d",resolutionSeconds:86_400,
+    trainBars:250,testBars:30,stepBars:30,minimumWindows:60,
+    maximumLatestCandleAgeMs:36*60*60*1000,
+    costScenarios:Object.freeze([
+      Object.freeze({id:"base",feeBpsPerSide:10,slippageBpsPerSide:10}),
+      Object.freeze({id:"moderate",feeBpsPerSide:20,slippageBpsPerSide:25}),
+      Object.freeze({id:"severe",feeBpsPerSide:35,slippageBpsPerSide:50})
+    ])
   })
 });
 function researchProfile(interval){
@@ -367,7 +377,7 @@ function runInternationalStrategyResearchProfile({rows,nowMs=Date.now(),interval
 
 
 export function runInternationalStrategyResearch({
-  rows,nowMs=Date.now(),intervals=["15m","1h","4h"]
+  rows,nowMs=Date.now(),intervals=["15m","1h","4h","1d"]
 }={}){
   if(!Array.isArray(intervals)||intervals.length===0)fail("international_research_profiles_required");
   const selectedIntervals=[...new Set(intervals.map(value=>String(value)))];

@@ -22,13 +22,14 @@ on:
           - incremental
           - backfill
       backfill_days:
-        description: Backfill horizon (4h uses up to 730 days; 1h 365 days; 15m 30 days)
+        description: Backfill horizon (daily up to 3650 days; 4h 730; 1h 365; 15m 30)
         required: false
-        default: "730"
+        default: "3650"
         type: string
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: international-market-history-write
@@ -54,7 +55,7 @@ jobs:
         shell: bash
         env:
           EVENT_MODE: ${{ inputs.mode || 'auto' }}
-          BACKFILL_DAYS: ${{ inputs.backfill_days || '730' }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days || '3650' }}
         run: |
           MODE="$EVENT_MODE"
           if [ "$MODE" = "auto" ]; then
@@ -86,3 +87,9 @@ jobs:
             git commit -m "data: append international market history"
             git push origin signal-history
           fi
+
+      - name: Trigger a fresh strategy screen after the backfill is stored
+        if: steps.mode.outputs.mode == 'backfill'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run international-strategy-research.yml --ref main
