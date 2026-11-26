@@ -60,9 +60,18 @@ A foreign venue's price is never an executable Tabdeal price. Compare like-for-l
 - The two probed Binance-style Tabdeal Spot trade topics (@trade and @aggTrade) were rejected with INVALID_FORMAT. Do not guess a different undocumented topic or use a leveraged/FAPI feed as a Spot substitute.
 - The public Tabdeal signal page is not a versioned official API and currently returns only a subset of its reported events.
 - IRT denomination/settlement semantics remain unverified.
-- The public history currently contains only a few short depth observations; it is not yet a research-grade continuous history.
+- The international history now contains quality-checked Binance Spot 4h OHLCV for BTC/ETH/SOL/XRP over the collected period; this is research-grade historical input for those specific series, not a complete multi-source execution feed. Tabdeal-local depth/trade history remains sparse/provisional and is not yet execution-grade.
 
 These limitations are why international public OHLCV/trade sources are the next signal-discovery priority rather than spending more time guessing Tabdeal endpoints.
+
+
+## Current research outcome — 2026-11-26
+
+The public companion now includes a scheduled fixed-hypothesis strategy screen at `src/international-strategy-research.js` and `scripts/international-strategy-research.mjs`. It reads only public historical Binance Spot USDT 4h candles and does not read account data, use private credentials, write D1, or access order endpoints.
+
+The latest verified run ([45792326631](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631)) evaluated 36 hypotheses across BTC/ETH/SOL/XRP and three long-only strategy families under three provisional cost scenarios. It found zero candidates that met all OOS, holdout, benchmark, drawdown and multiple-testing gates. Paper promotion remains blocked; no live executor exists in the public repository.
+
+Do not mirror this venue/data-specific runner into the private core as a shared module. The shared neutral research/risk files remain governed by the existing blob-level synchronization rule. Do not reactivate the private Nobitex UDF Paper workflow for Tabdeal; a future Tabdeal Paper adapter must use fresh Tabdeal-local data and separate tests.
 
 ## Relationship to paused automation
 
