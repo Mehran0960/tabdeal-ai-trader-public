@@ -36,7 +36,7 @@ test("excludes Kraken's current uncommitted candle",()=>{
   const rows=[
     [Math.floor((NOW-8*3600000)/1000),"100","110","95","105","102","10",20],
     [Math.floor((NOW-4*3600000)/1000),"105","115","100","110","108","12",25],
-    [Math.floor((NOW-1*3600000)/1000),"110","120","105","115","112","4",8]
+    [Math.floor(NOW/1000),"110","120","105","115","112","4",8]
   ];
   const candles=normalizeKrakenOhlc({
     baseAsset:"BTC",pairKey:"XBTUSD",interval:"4h",rows,capturedAtMs:NOW
@@ -104,7 +104,7 @@ test("collector uses only public GETs and returns no account or order capability
       body={error:[],result:{XXBTZUSD:[
         [Math.floor((NOW-8*3600000)/1000),"100","110","95","105","102","10",20],
         [Math.floor((NOW-4*3600000)/1000),"105","115","100","110","108","12",25],
-        [Math.floor((NOW-1*3600000)/1000),"110","120","105","115","112","4",8]
+        [Math.floor(NOW/1000),"110","120","105","115","112","4",8]
       ],last:0}};
     }else if(url.hostname==="data-api.binance.vision"){
       body=[[NOW-8*3600000,"100","110","95","105","10",NOW-4*3600000-1,"1050",20]];
