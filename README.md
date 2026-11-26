@@ -7,7 +7,7 @@ This repository is the sanitized, public research companion to the private opera
 
 This repository is the sanitized public research companion to the private [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader) repository. The two repositories are related parts of one engineering effort, not independent bots. The private repository contains the broader shared research/risk code and operational integration; this repository exposes a credential-free, reviewable Tabdeal research slice. The audited shared-file list, exact Git blob IDs, update/synchronization rule and security boundary are documented in [Repository relationship and shared components](docs/REPOSITORY-RELATIONSHIP.md).
 
-As audited on 2026-11-26, nine source files and seven test files in the two repositories have identical Git blob IDs. This proves byte-for-byte identity for those files at the audit point; it does not mean every file, venue adapter, workflow or deployment is shared.
+As audited on 2026-11-26, eight source modules and eight test files (including one test file stored under src) in the two repositories have identical Git blob IDs. This proves byte-for-byte identity for those files at the audit point; it does not mean every file, venue adapter, workflow or deployment is shared.
 
 ## Signal discovery is international; execution remains Tabdeal Spot
 
