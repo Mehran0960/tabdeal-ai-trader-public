@@ -94,7 +94,7 @@ export async function appendInternationalMarketSnapshot({
   }
   for (const check of snapshot.crossChecks) {
     if (!isRecord(check)||typeof check.baseAsset!=="string"||
-        !["15m","1h","4h"].includes(check.interval)||
+        !["15m","1h","4h","1d"].includes(check.interval)||
         !Number.isSafeInteger(check.openTimeMs)||
         !Number.isFinite(Number(check.absoluteDifferenceBps))) {
       throw new Error("international_market_history_cross_check_invalid");
