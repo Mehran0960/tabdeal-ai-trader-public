@@ -1,0 +1,46 @@
+name: International Spot Strategy Research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/international-strategy-research.js"
+      - "scripts/international-strategy-research.mjs"
+      - ".github/workflows/international-strategy-research.yml"
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: international-spot-strategy-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run syntax and unit checks
+        run: |
+          npm run check
+          npm test
+      - name: Run fixed-cost multi-asset OOS and untouched-holdout research
+        run: node scripts/international-strategy-research.mjs
+      - name: Upload research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: international-spot-strategy-research
+          path: artifacts/international-strategy-research/latest.json
+          if-no-files-found: error
+          retention-days: 30
