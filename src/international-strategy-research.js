@@ -371,11 +371,14 @@ function runInternationalStrategyResearchProfile({rows,nowMs=Date.now(),interval
         "The last 20% of each symbol history is not used in OOS selection and is reported as an untouched holdout.",
         "Cost scenarios are provisional stress assumptions; Tabdeal fee tier, rebates, spread, impact and fill costs remain to be verified.",
         "Only Binance Spot USDT candles are analyzed. Kraken USD is not merged with USDT or treated as a Tabdeal price.",
-        "No IRT market is analyzed because its price/settlement unit remains unverified."
+        "No IRT market is analyzed because its price/settlement unit remains unverified.",
+        "Historical candles that closed before their full registered interval end are explicitly excluded; their resulting timestamp gaps remain visible to contiguous-segment validation."
       ]
     },
     dataQuality:{selectedRecordCount:normalized.selectedRecordCount,
       duplicateCount:normalized.duplicateCount,ignoredRecordCount:normalized.ignoredRecordCount,
+      excludedIncompleteCandleCount:normalized.excludedIncompleteCandleCount,
+      excludedIncompleteBySymbol:normalized.excludedIncompleteBySymbol,
       readySymbolCount:readyCount,symbols:sourceReadiness},
     results:researchResults,researchCandidates:candidates,
     paperGate:{passed:false,liveTradingEnabled:false,exchangeOrdersPlaced:0,
