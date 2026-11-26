@@ -8,6 +8,8 @@ on:
       - "scripts/probe-international-sources.mjs"
       - "tests/international-source-probe.test.mjs"
       - ".github/workflows/international-source-probe.yml"
+  schedule:
+    - cron: "27 6 * * 1"
   workflow_dispatch:
 
 permissions:
