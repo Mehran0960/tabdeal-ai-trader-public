@@ -72,7 +72,7 @@ test("compounds buy-and-hold once per contiguous OOS segment, not once per fold"
 
 
 
-test("supports independently validated 15m, 1h and 4h research profiles",()=>{
+test("supports independently validated 15m, 1h, 4h and daily research profiles",()=>{
   const rows=[];
   for(const interval of ["15m","1h","4h","1d"]){
     const duration=({"15m":900_000,"1h":3_600_000,"4h":14_400_000,"1d":86_400_000})[interval];
@@ -88,7 +88,7 @@ test("supports independently validated 15m, 1h and 4h research profiles",()=>{
       });
     }
   }
-  for(const interval of ["15m","1h","4h"]){
+  for(const interval of ["15m","1h","4h","1d"]){
     const result=normalizeInternationalResearchRows(rows,{nowMs:now,interval});
     assert.equal(result.candlesBySymbol.BTCUSDT.length,3);
     assert.equal(result.qualityBySymbol.BTCUSDT.candleCount,3);
@@ -99,7 +99,7 @@ test("applies global multiple-testing correction across all interval profiles",(
   const report=runInternationalStrategyResearch({
     rows:[candle("BTCUSDT",0),candle("BTCUSDT",1)],
     nowMs:now,
-    intervals:["15m","1h","4h"]
+    intervals:["15m","1h","4h","1d"]
   });
   assert.equal(report.methodology.hypothesisCount,180);
   assert.deepEqual(report.source.intervals,["15m","1h","4h","1d"]);
