@@ -168,3 +168,24 @@ test("pre-registers Dogecoin across Binance Spot, Kraken Spot and Tabdeal Spot",
     baseAsset:"DOGE",binanceSymbol:"DOGEUSDT",krakenPair:"XDGUSD",tabdealSymbol:"DOGEUSDT"
   });
 });
+
+
+test("supports closed Binance daily candles with exact UTC boundaries",()=>{
+  const row=[NOW-86_400_000,"100","110","95","105","10",NOW-1,"1050",20];
+  const candles=normalizeBinanceKlines({symbol:"BTCUSDT",interval:"1d",rows:[row],capturedAtMs:NOW});
+  assert.equal(candles.length,1);
+  assert.equal(candles[0].interval,"1d");
+  assert.equal(candles[0].close,105);
+});
+
+test("normalizes Kraken daily OHLC as a separate USD reference",()=>{
+  const rows=[
+    [Math.floor((NOW-2*86_400_000)/1000),"100","110","95","105","102","10",20],
+    [Math.floor((NOW-86_400_000)/1000),"105","115","100","110","108","12",25],
+    [Math.floor(NOW/1000),"110","120","105","115","112","4",8]
+  ];
+  const candles=normalizeKrakenOhlc({baseAsset:"BTC",pairKey:"XBTUSD",interval:"1d",rows,capturedAtMs:NOW});
+  assert.equal(candles.length,2);
+  assert.equal(candles[0].quoteAsset,"USD");
+  assert.equal(candles[0].interval,"1d");
+});
