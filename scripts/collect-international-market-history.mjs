@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import {mkdir,readFile,writeFile,access,readdir} from "node:fs/promises";
+import {appendFile,mkdir,readdir,writeFile} from "node:fs/promises";
 import path from "node:path";
-import {appendFile} from "node:fs/promises";
 import {runInternationalMarketCollection} from "../src/international-market-history.js";
 
 function getArg(name,fallback) {
