@@ -152,5 +152,10 @@ test("collector uses only public GETs and returns no account or order capability
   assert.equal(report.safety.orderSubmissionAttempted,false);
   assert.equal(report.safety.exchangeOrdersPlaced,0);
   assert.ok(urls.every(item=>item.method==="GET"));
+  const requestPaths=urls.map(item=>new URL(item.url).pathname);
+  assert.ok(requestPaths.includes("/0/public/AssetPairs"));
+  assert.ok(requestPaths.includes("/0/public/OHLC"));
+  assert.ok(requestPaths.includes("/r/api/v1/exchangeInfo"));
+  assert.ok(requestPaths.includes("/r/api/v1/depth"));
   assert.ok(urls.every(item=>!/signature|apiKey|secret/i.test(item.url)));
 });
