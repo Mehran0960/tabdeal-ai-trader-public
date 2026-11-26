@@ -42,7 +42,9 @@ This is an audited snapshot, not a claim that all repository files are the same.
 
 - **Binance Spot public market data:** first candidate for liquid-market OHLCV, trades/aggregate trades, order-book context and public historical files. The private repository already contains src/global-reference.js for a narrow Binance BTCUSDT context reference; it is not a complete multi-source discovery pipeline.
 - **Kraken Spot public REST/WebSocket:** independent OHLC, trades and order-book source for cross-validation and resilience.
-- **CoinGecko:** optional broad-market regime and asset metadata context, not a substitute for exchange-grade intraday tape or a local execution book.
+- **CoinGecko:** optional broad-market regime and asset metadata context, not a substitute for exchange-grade intraday tape or a local execution book. Current free Demo access requires a Demo API key, so it is not part of the no-key core path.
+
+Official source references: [Binance Market Data Only](https://github.com/binance/binance-spot-api-docs/blob/master/faqs/market_data_only.md), [Binance Spot REST](https://developers.binance.com/docs/binance-spot-api-docs/rest-api), [Kraken Spot REST OHLC](https://docs.kraken.com/api-reference/market-data/get-ohlc-data), [Kraken Recent Trades](https://docs.kraken.com/api-reference/market-data/get-recent-trades), [Kraken Spot WebSocket v2 ticker](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker), and [CoinGecko Demo key setup](https://support.coingecko.com/articles/9471335603-user-guide-how-to-sign-up-for-coingecko-demo-api-and-generate-an-api-key).
 
 Before relying on any provider, verify official terms, no-key availability, quotas, pagination, timestamp semantics, asset/quote mapping and actual reachability from the GitHub Actions runner. Do not require a paid API for the initial path.
 

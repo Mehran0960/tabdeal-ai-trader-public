@@ -1,0 +1,37 @@
+name: International Public Market Source Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/international-source-probe.js"
+      - "scripts/probe-international-sources.mjs"
+      - "tests/international-source-probe.test.mjs"
+      - ".github/workflows/international-source-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: international-public-source-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run bounded unauthenticated source probes
+        run: npm run sources:probe
+      - name: Preserve sanitized source capability report
+        uses: actions/upload-artifact@v4
+        with:
+          name: international-public-source-probe
+          path: artifacts/international-source-probe/latest.json
+          if-no-files-found: error
+          retention-days: 7

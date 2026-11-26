@@ -12,9 +12,9 @@ Build a read-only source matrix and probe the sources from the actual GitHub Act
 
 1. **Binance Spot public market data** — start with public klines/OHLCV, trades or aggregate trades, book ticker/depth and public historical files where useful. Prefer market-data-only/no-key endpoints. Reuse the documented context-only Binance reference in the private project as a code/reference starting point, not as proof that the whole pipeline is already operational.
 2. **Kraken Spot public REST/WebSocket** — evaluate OHLC, trades and order-book feeds as an independent source and cross-check against Binance.
-3. **CoinGecko** — optional broad-market regime, asset metadata and independent sanity checks; do not rely on it as a substitute for exchange-grade intraday trades or order books.
+3. **CoinGecko** — optional broad-market regime, asset metadata and independent sanity checks; current free Demo access requires a Demo API key. Do not rely on it as a substitute for exchange-grade intraday trades or order books.
 
-For each provider, record official documentation, terms, rate limits, authentication requirements, symbol coverage, quote currency, timestamp units, historical depth, pagination, data freshness, GitHub Actions reachability, failure modes and fallback behaviour. No paid API, account, transfer or secret is required for the initial discovery stage. Network reachability must be demonstrated in the real workflow runtime; do not assume that browser access or local access proves runner access.
+For each provider, record official documentation, terms, rate limits, authentication requirements, symbol coverage, quote currency, timestamp units, historical depth, pagination, data freshness, GitHub Actions reachability, failure modes and fallback behaviour. The core discovery path uses no-key Binance Spot Market Data Only and Kraken public Spot market-data endpoints. CoinGecko is optional; its current free Demo access requires a Demo API key, so defer it unless a concrete research need justifies it. No paid API, account, transfer or private exchange secret is required for the initial path. Network reachability must be demonstrated in the real workflow runtime; do not assume that browser access or local access proves runner access.
 
 ## Stage 2 — normalize and cross-check against Tabdeal
 
