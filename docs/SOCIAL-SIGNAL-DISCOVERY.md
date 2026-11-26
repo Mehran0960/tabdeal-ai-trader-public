@@ -16,13 +16,19 @@ This supersedes any earlier suggestion to automatically capture a Telegram chann
 
 Official terms: [Telegram Bot Developer Terms, section 4.3](https://telegram.org/tos/bot-developers); [Content Licensing and AI Scraping Terms](https://telegram.org/tos/content-licensing); [Telegram API Terms](https://core.telegram.org/api/terms).
 
-## Confirmed human-review leads (not verified signal providers)
+## Confirmed human-review leads and current triage (2026-11-26)
 
-- Shayan Bakhtiari / Crypto Academy — [@ShayanFX_Crypto](https://t.me/ShayanFX_Crypto)
-- Khaneh Mali Tosee — [main channel](https://t.me/khanemalii), [Crypto VIP](https://t.me/vipcryptokm)
-- Cheragh — [@cheragh](https://t.me/cheragh), [signal product page](https://cheragh.com/crypto-signal)
-- Bitycle — [@bityclecom](https://t.me/bityclecom); currently categorized as a platform/content lead, not a verified signal stream
-- Behrooz Ahmadi — [@behroozahmadieco](https://t.me/behroozahmadieco); owner-confirmed intended channel, currently a macro/market-commentary lead unless complete Spot-long calls are demonstrated
+No candidate is approved as a trade-signal provider. The classifications below are based on public previews, vendor documentation and self-published pages; they are not a forensic audit of private/VIP records.
+
+| Candidate | Public identity / evidence | Current decision for Tabdeal Spot |
+|---|---|---|
+| **Shayan Bakhtiari / Crypto Academy** | [@ShayanFX_Crypto](https://t.me/ShayanFX_Crypto). The currently visible public preview contains CAKE/USDT and PUMP/USDT **SHORT** calls with **25x leverage**, market entries and staged targets; it also contains a WEEX promotion requiring deposit/futures activity and a referral code. | **Reject as an executable signal source for this project.** This sample conflicts directly with long-only Spot/no-leverage constraints. Do not mirror, subscribe, register or route funds because of the promotion. A future separately authorized spot-only, non-incentivized feed would need a fresh review. |
+| **Khaneh Mali Tosee** | [Main channel](https://t.me/khanemalii), [Crypto VIP](https://t.me/vipcryptokm). Third-party public previews show education/webinar marketing and social/copy-trading promotions; complete original signal history, losses and executable plan fields could not be independently reconstructed. | **Unqualified / low priority.** Do not pay for VIP or join a copy-trade/referral route. Reassess only on a rights-cleared, complete Spot-long signal export. |
+| **Cheragh** | [Main channel](https://t.me/cheragh), [crypto signal product page](https://cheragh.com/crypto-signal). Its page self-reports 33% average six-month profit and around 10 signals/week in one summary, while its FAQ says 3–4 calls/day. The displayed examples are 5m/15m futures calls on Bitunix. VIP access is conditional on registering at a partner exchange with Cheragh's referral code. | **Unqualified for now.** Marketing metrics are not an independently reconciled net-P&L record; the frequency claims conflict and visible examples are not our execution style. No referral registration or VIP activation. A future licensed Spot-only feed would need a separate evaluation. |
+| **Bitycle** | [@bityclecom](https://t.me/bityclecom) is currently a news/analysis/tool channel, not an evidenced signal stream. Separately, [Bitycle Cap Markets docs](https://docs.bitycle.com/cap/markets) advertise local/Iranian exchange market metadata, bid/ask, volume, spread, depth and OHLCV including Toman pairs. Its [Business API docs](https://docs.bitycle.com/) require an API key; pricing and retention rights are not established. | **Prioritize as a possible local market-data vendor, not a signal channel.** Ask about a no-cost developer/sandbox tier, Tabdeal coverage, historical depth, data freshness, exact IRT/Toman field semantics, rate limits and rights to store/use data. Do not assume it is free or authoritative. |
+| **Behrooz Ahmadi** | [@behroozahmadieco](https://t.me/behroozahmadieco), confirmed by the project owner. Public channel descriptions and mirrors show economic/global-market commentary and Forex sentiment alongside promotions; no reliable flow of explicit, complete Spot-crypto entry/stop/target calls was found. | **Keep as macro context only, not an entry/exit source.** No automated collection; no paid advisory or broker integration. |
+
+The assessments are not endorsements. Subscriber counts, testimonials, self-reported profit and referral-based access do not establish a profitable signal history.
 
 ## Initial external screening reference
 
