@@ -1,5 +1,7 @@
 # Tabdeal AI Trader — Public Research Core
 
+> **Current automated status — 2026-11-26:** the public history and daily multi-asset research workflow are running. The latest completed screen read 66,464 source records, validated 17,516 Binance Spot 4h candles across BTC/ETH/SOL/XRP (4,379 per asset; no gaps or duplicates), and tested 36 fixed strategy/cost hypotheses. **No candidate passed the research gates; Paper promotion and live trading remain disabled.** [Latest research run](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631) · [Full report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45792326631/artifacts/15102109708).
+
 This repository is the sanitized, public research companion to the private operations repository [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader).
 
 
@@ -11,7 +13,7 @@ As audited on 2026-11-26, eight source modules and eight test files (including o
 
 ## Signal discovery is international; execution remains Tabdeal Spot
 
-The next research stage is to discover candidate signals from reliable, reachable international public market-data sources—starting with Binance Spot and Kraken Spot, with CoinGecko as optional broad-market context—then independently validate each candidate against fresh Tabdeal Spot data before any paper order is considered. External prices are research inputs, never Tabdeal execution prices. Match quote currencies, timestamps, pair identity and local basis; do not convert IRT to RIAL/TOMAN or infer an executable local price without verified semantics. The source reachability/terms/rate-limit matrix must be tested from the actual GitHub Actions runtime. See [Operating plan](docs/OPERATING-PLAN.md) and [Issue #10](https://github.com/Mehran0960/tabdeal-ai-trader-public/issues/10).
+The active research lane now collects international public market history and screens pre-registered candidate strategies from Binance Spot USDT data. Binance Spot and Kraken Spot remain source inputs; each candidate still requires independent confirmation against fresh Tabdeal Spot data before any paper order is considered. External prices are research inputs, never Tabdeal execution prices. Match quote currencies, timestamps, pair identity and local basis; do not convert IRT to RIAL/TOMAN or infer an executable local price without verified semantics. The source reachability/terms/rate-limit matrix must be tested from the actual GitHub Actions runtime. See [Operating plan](docs/OPERATING-PLAN.md) and [Issue #10](https://github.com/Mehran0960/tabdeal-ai-trader-public/issues/10).
 
 ## Scope
 
@@ -22,6 +24,7 @@ The next research stage is to discover candidate signals from reliable, reachabl
 - Research and risk-analysis functions.
 - Backtest helpers and a paper-simulation engine.
 - Automated syntax checks and tests on GitHub Actions.
+- Scheduled international Spot history capture and fixed-cost out-of-sample strategy research.
 
 **This repository does not contain an authenticated account client or a live order executor.** It cannot read balances, place/cancel orders, withdraw, transfer funds, or enable live trading. The scanner uses public GET endpoints only and requires no API key.
 
@@ -44,6 +47,7 @@ npm test
 npm run market:scan
 npm run signals:scan
 npm run ws:spot-depth
+npm run international:research
 ```
 
 The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. The signal scan writes `artifacts/tabdeal-signal-events/latest.json`. These artifacts are ignored by Git. The scheduled signal workflow stores prospective, deduplicated observations in the separate `signal-history` branch. The Spot depth sampler listens to the official 2-second order-book stream for one minute per run and stores only aggregate microstructure summaries in the same history branch; it does not retain raw messages.
