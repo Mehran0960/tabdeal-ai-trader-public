@@ -26,15 +26,15 @@ Official terms: [Telegram Bot Developer Terms, section 4.3](https://telegram.org
 
 ## Initial external screening reference
 
-[Litmusignals](https://litmusignals.com/) is a candidate **channel-screening reference**, not an approved trade-signal provider. Its public methodology says it monitors public Telegram channels, records entry/target/stop/leverage fields when available, and flags edited/deleted posts, copy-paste networks, pump-related activity and channel renames. It also publishes an [archive of signal fingerprints](https://github.com/Litmusignals-dev/Litmus).
+[Litmusignals](https://litmusignals.com/) may be viewed manually as a **third-party channel-discovery reference**, not an approved trade-signal provider. Its public methodology describes tracking signals and flags such as edits/deletions, copy-paste networks and pump-related activity. It also publishes an [archive](https://github.com/Litmusignals-dev/Litmus), but because that archive contains data derived from Telegram, **do not download, ingest, index or use the archive as an AI/ML dataset** unless the required Telegram permissions/consents and the archive's own data rights have been independently established.
 
-Important limitations in its own methodology:
-- Its displayed headline metric is hit rate, not net profitability or risk-adjusted return. A high hit rate can still lose money.
+Limitations in its published methodology:
+- Its headline metric is hit rate, not net profitability or risk-adjusted return.
 - Its outcome checks use Bybit and Bitget one-minute candles, not Tabdeal executable bids/asks, fees or fills.
-- It excludes signals it cannot price (the site reports roughly 16% in its methodology snapshot), and cannot see a post deleted before its collector captures it.
-- Its public GitHub archive contains short text fragments, hashes and publication/capture timestamps; it does not provide the complete original post needed to reconstruct every trade plan.
+- Some unpriceable signals are excluded, and a post deleted before the monitor captures it may be missed.
+- A hash and short preview do not provide a complete, independently reproducible trade plan.
 
-Therefore the tracker can help **discover and screen** channels, but its rankings and hit rates cannot qualify a source for this bot. See the [published methodology and limitations](https://www.litmusignals.com/disclaimer).
+Therefore the tracker may help a human discover names for review, but its archive, rankings and hit rates cannot qualify a source for this bot. See the [published methodology and limitations](https://www.litmusignals.com/disclaimer).
 
 ## Required pipeline before a source is usable
 
