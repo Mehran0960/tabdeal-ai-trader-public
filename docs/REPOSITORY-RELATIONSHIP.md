@@ -24,7 +24,7 @@ The following paths were compared between the default main branches on 2026-11-2
 | src/price-units.js | 73fd6c5ca31c2e3c2bcc2e7c169daf72a0dc5735 |
 | src/tabdeal-public-api.js | dd3787a3aa1e85abf63500e782f002ccd6707ebb |
 
-The seven identical tests are tests/research.test.js, tests/risk.test.js, tests/paper-engine.test.js, tests/paper-simulate.test.js, tests/market-intelligence.test.js, tests/price-units.test.js and tests/tabdeal-public-api.test.js.
+The eight identical test files are src/paper-candidate-policy.test.js plus tests/research.test.js, tests/risk.test.js, tests/paper-engine.test.js, tests/paper-simulate.test.js, tests/market-intelligence.test.js, tests/price-units.test.js and tests/tabdeal-public-api.test.js. The extra test under src has blob SHA c1abfed4ee4360d04883bef0724f81fc1e1c1e1a.
 
 This is an audited snapshot, not a claim that all repository files are the same. In particular, market-data collectors, Tabdeal ingestion, workflows and private operational code differ by repository and venue responsibility. Recheck blob IDs when syncing changes.
 
