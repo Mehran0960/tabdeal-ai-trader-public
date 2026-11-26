@@ -411,6 +411,8 @@ export function runInternationalStrategyResearch({
     selectedRecordCount:profile.dataQuality.selectedRecordCount,
     duplicateCount:profile.dataQuality.duplicateCount,
     ignoredRecordCount:profile.dataQuality.ignoredRecordCount,
+    excludedIncompleteCandleCount:profile.dataQuality.excludedIncompleteCandleCount,
+    excludedIncompleteBySymbol:profile.dataQuality.excludedIncompleteBySymbol,
     readySymbolCount:profile.dataQuality.readySymbolCount,
     readySymbols:profile.dataQuality.symbols.filter(row=>row.readyForResearch).map(row=>row.symbol),
     hypothesisCount:profile.methodology.hypothesisCount,
@@ -451,6 +453,7 @@ export function runInternationalStrategyResearch({
     dataQuality:{
       selectedRecordCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.selectedRecordCount,0),
       duplicateCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.duplicateCount,0),
+      excludedIncompleteCandleCount:profiles.reduce((sum,profile)=>sum+profile.dataQuality.excludedIncompleteCandleCount,0),
       readySymbolCount,profiles:profileSummaries,symbols:allReady
     },
     results,researchCandidates:candidates,
