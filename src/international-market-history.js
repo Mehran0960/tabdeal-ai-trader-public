@@ -241,7 +241,9 @@ async function getJson(url,{fetchImpl,timeoutMs}) {
 }
 
 function buildUrl(base,path,params={}) {
-  const url = new URL(path,base);
+  const normalizedBase=String(base).endsWith("/")?String(base):String(base)+"/";
+  const relativePath=String(path).replace(/^\\/+/, "");
+  const url = new URL(relativePath,normalizedBase);
   for (const [key,value] of Object.entries(params)) {
     if (value!==undefined && value!==null) url.searchParams.set(key,String(value));
   }
