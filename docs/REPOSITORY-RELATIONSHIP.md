@@ -67,11 +67,11 @@ These limitations are why international public OHLCV/trade sources are the next 
 
 ## Current research outcome — 2026-11-26
 
-The public companion now includes a scheduled fixed-hypothesis multi-timeframe strategy screen at `src/international-strategy-research.js` and `scripts/international-strategy-research.mjs`. The latest verified run ([45795362370](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370)) read 66,756 history records and evaluated 108 hypotheses across BTC/ETH/SOL/XRP, 15m/1h/4h and three long-only strategies under three provisional cost scenarios. It selected 64,164 Binance Spot USDT candles; all 12 asset/timeframe series were fresh with no detected gaps or duplicates.
+The public companion's scheduled architecture now covers five pre-registered assets (BTC, ETH, SOL, XRP, DOGE) across 15m/1h/4h. After adding DOGE, the automatic history-mode selector detected missing series and performed a full backfill. Capture run [45797397256](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797397256) recorded 80,085 Binance closed candles, 10,800 Kraken closed candles (including DOGE/USD via XDGUSD), 5/5 Tabdeal USDT books, 10,800 cross-venue comparisons and zero source errors. It appended 35,050 records to the history branch.
 
-Zero candidates passed the full OOS, net-return, benchmark-consistency, drawdown, multiple-testing and untouched-holdout gates. A single 1h base-cost case and four 4h cases showed positive net OOS returns, but none passed the promotion policy. The research workflow is configured hourly; history capture is configured every 15 minutes (minute 05/20/35/50).
+The latest strategy screen ([45797841288](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288)) read 101,806 history records and evaluated 135 fixed hypotheses on 80,189 selected Binance Spot USDT candles. All 15 asset/timeframe series were fresh; no duplicates or missing intervals were detected. Zero candidates passed OOS net return, benchmark consistency, drawdown, global multiple-testing and untouched-holdout gates. DOGE was net-negative in all 27 of its hypotheses.
 
-No forward Paper candidate currently exists. The public repository remains credential-free, has no account client or live executor, and has placed no exchange orders. Do not lower gates or create simulated positions just to produce activity.
+Public CI passed 120/120 tests ([45797841439](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841439)). No forward Paper candidate currently exists. The public repository remains credential-free, has no account client or live executor, and has placed no exchange orders. Do not lower gates or create simulated positions just to produce activity.
 
 ## Relationship to paused automation
 
