@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// The research runner reads the append-only signal-history branch at each execution; this change also retriggers a screen after a completed backfill.
 import {readdir,readFile,mkdir,writeFile,appendFile} from "node:fs/promises";
 import path from "node:path";
 import {runInternationalStrategyResearch} from "../src/international-strategy-research.js";
