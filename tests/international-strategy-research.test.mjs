@@ -14,7 +14,7 @@ function candle(symbol,index,close=100){
 }
 test("normalizes only allowlisted, valid Binance Spot 4h USDT candles",()=>{
   const rows=[candle("BTCUSDT",0),candle("BTCUSDT",1),
-    {...candle("BTCUSDT",2),recordType:"tabdeal_book",provider:"tabdeal_spot"},candle("DOGEUSDT",0)];
+    {...candle("BTCUSDT",2),recordType:"tabdeal_book",provider:"tabdeal_spot"},candle("ADAUSDT",0)];
   const result=normalizeInternationalResearchRows(rows,{nowMs:Date.UTC(2026,11,1)});
   assert.equal(result.candlesBySymbol.BTCUSDT.length,2);
   assert.equal(result.selectedRecordCount,2);
@@ -101,9 +101,10 @@ test("applies global multiple-testing correction across all interval profiles",(
     nowMs:now,
     intervals:["15m","1h","4h"]
   });
-  assert.equal(report.methodology.hypothesisCount,108);
+  assert.equal(report.methodology.hypothesisCount,135);
   assert.deepEqual(report.source.intervals,["15m","1h","4h"]);
-  assert.equal(report.results.length,108);
+  assert.deepEqual(report.source.symbols,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","DOGEUSDT"]);
+  assert.equal(report.results.length,135);
   assert.equal(report.dataQuality.profiles.length,3);
   assert.ok(report.results.every(row=>Number(row.qValue)===1));
   assert.equal(report.researchCandidates.length,0);
@@ -118,4 +119,13 @@ test("does not mix quote units or execute external market prices",()=>{
   assert.equal(report.paperGate.passed,false);
   assert.equal(report.safety.accountDataRead,false);
   assert.equal(report.safety.exchangeOrdersPlaced,0);
+});
+
+
+test("accepts DOGEUSDT as a pre-registered Binance Spot research asset",()=>{
+  const row=candle("DOGEUSDT",0);
+  const result=normalizeInternationalResearchRows([row],{nowMs:Date.UTC(2026,11,1)});
+  assert.equal(result.candlesBySymbol.DOGEUSDT.length,1);
+  assert.equal(result.selectedRecordCount,1);
+  assert.equal(result.qualityBySymbol.DOGEUSDT.candleCount,1);
 });

@@ -9,7 +9,8 @@ export const INTERNATIONAL_MARKET_PAIRS = Object.freeze([
   {baseAsset:"BTC", binanceSymbol:"BTCUSDT", krakenPair:"XBTUSD", tabdealSymbol:"BTCUSDT"},
   {baseAsset:"ETH", binanceSymbol:"ETHUSDT", krakenPair:"ETHUSD", tabdealSymbol:"ETHUSDT"},
   {baseAsset:"SOL", binanceSymbol:"SOLUSDT", krakenPair:"SOLUSD", tabdealSymbol:"SOLUSDT"},
-  {baseAsset:"XRP", binanceSymbol:"XRPUSDT", krakenPair:"XRPUSD", tabdealSymbol:"XRPUSDT"}
+  {baseAsset:"XRP", binanceSymbol:"XRPUSDT", krakenPair:"XRPUSD", tabdealSymbol:"XRPUSDT"},
+  {baseAsset:"DOGE", binanceSymbol:"DOGEUSDT", krakenPair:"XDGUSD", tabdealSymbol:"DOGEUSDT"}
 ]);
 
 export const INTERNATIONAL_INTERVALS = Object.freeze([

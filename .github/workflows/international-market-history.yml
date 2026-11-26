@@ -49,7 +49,7 @@ jobs:
           ref: signal-history
           path: signal-history
           token: ${{ github.token }}
-      - name: Select history collection mode
+      - name: Select history collection mode, backfilling newly added series
         id: mode
         shell: bash
         env:
@@ -58,12 +58,7 @@ jobs:
         run: |
           MODE="$EVENT_MODE"
           if [ "$MODE" = "auto" ]; then
-            if [ -d signal-history/data/international-market-history ] && \
-               find signal-history/data/international-market-history -maxdepth 1 -type f -name '*.jsonl' | grep -q .; then
-              MODE="incremental"
-            else
-              MODE="backfill"
-            fi
+            MODE="$(node scripts/select-international-history-mode.mjs --history-dir signal-history/data/international-market-history)"
           fi
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "backfill_days=$BACKFILL_DAYS" >> "$GITHUB_OUTPUT"
