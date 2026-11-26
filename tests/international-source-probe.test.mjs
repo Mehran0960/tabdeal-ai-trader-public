@@ -63,8 +63,8 @@ test("runs bounded public probes and returns only response metadata", async () =
       {asset: "btc", time: "2026-11-26T00:00:00.000Z", ReferenceRateUSD: "91000"}
     ]}],
     ["/stablecoincharts/all", [
-      {date: 1795564800, totalCirculating: 300000000000},
-      {date: 1795651200, totalCirculating: 301000000000}
+      {date: "1795564800", totalCirculating: {peggedUSD: 300000000000}, totalCirculatingUSD: {peggedUSD: 300500000000}},
+      {date: "1795651200", totalCirculating: {peggedUSD: 301000000000}, totalCirculatingUSD: {peggedUSD: 301500000000}}
     ]],
     ["/fng/", {data: [
       {value: "42", timestamp: "1795651200"},
