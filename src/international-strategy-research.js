@@ -172,6 +172,10 @@ function summarizeOos(result,inputCandles,scenario){
   const windows=Array.isArray(result.windows)?result.windows:[];
   const wins=windows.filter(row=>Number(row.excessReturnPct)>0).length;
   const nonTies=windows.filter(row=>Number(row.excessReturnPct)!==0).length;
+  const pValue=exactBinomialUpperTail(wins,nonTies);
+  const benchmark=calculateContiguousOosBenchmark(inputCandles,windows,scenario);
+  const strategyReturnPct=Number(result.compoundedReturnPct);
+  const benchmarkExcessReturnPct=strategyReturnPct-benchmark.benchmarkReturnPct;
   return {
     available:true,method:result.method,windowCount:result.windowCount,
     minimumWindowsRequired:result.minimumWindowsRequired,
@@ -181,7 +185,7 @@ function summarizeOos(result,inputCandles,scenario){
     independentWindowBenchmarkCompoundedReturnPct:result.benchmarkCompoundedReturnPct,
     benchmarkRoundTrips:benchmark.roundTrips,
     outperformanceWindowRatePct:result.outperformanceWindowRatePct,
-    wins,nonTies,signTestPValue:exactBinomialUpperTail(wins,nonTies),
+    wins,nonTies,signTestPValue:pValue,
     worstWindowReturnPct:result.worstWindowReturnPct,
     worstWindowDrawdownPct:result.worstWindowDrawdownPct,
     totalTrades:result.totalTrades,averageWindowExcessReturnPct:result.averageWindowExcessReturnPct,
