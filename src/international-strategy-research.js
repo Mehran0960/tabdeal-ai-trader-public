@@ -255,7 +255,7 @@ function buildResearchCandidates(results,policy=INTERNATIONAL_RESEARCH_POLICY){
     if(rows.some(row=>!row.holdout?.available||Number(row.holdout.totalReturnPct)<=0||
        Number(row.holdout.excessReturnPct)<=0||Number(row.holdout.tradeCount)<5))continue;
     const maxQ=Math.max(...rows.map(row=>Number(row.qValue??1)));
-    if(maxQ>INTERNATIONAL_RESEARCH_POLICY.maximumFdrQValue)continue;
+    if(maxQ>policy.maximumFdrQValue)continue;
     if(!(Number(base.oos.compoundedReturnPct)>0&&Number(moderate.oos.compoundedReturnPct)>0&&
        Number(severe.oos.compoundedReturnPct)>=policy.minimumSevereStressReturnPct))continue;
     candidates.push({
@@ -381,6 +381,7 @@ export function runInternationalStrategyResearch({
   for(const row of results)row.qValue=qValues.get(row.id)??1;
   const candidates=profiles.flatMap(profile=>
     buildResearchCandidates(profile.results,researchProfile(profile.source.interval)));
+  for(const candidate of candidates)candidate.multipleTestingHypothesisCount=results.length;
   const readySymbolCount=profiles.reduce((sum,profile)=>sum+profile.dataQuality.readySymbolCount,0);
   const allReady=profiles.flatMap(profile=>profile.dataQuality.symbols);
   const profileSummaries=profiles.map(profile=>({
