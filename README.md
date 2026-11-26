@@ -13,7 +13,7 @@ As audited on 2026-11-26, eight source modules and eight test files (including o
 
 ## Signal discovery is international; execution remains Tabdeal Spot
 
-The active research lane now collects international public market history and screens pre-registered candidate strategies from Binance Spot USDT data. Binance Spot and Kraken Spot remain source inputs; each candidate still requires independent confirmation against fresh Tabdeal Spot data before any paper order is considered. External prices are research inputs, never Tabdeal execution prices. Match quote currencies, timestamps, pair identity and local basis; do not convert IRT to RIAL/TOMAN or infer an executable local price without verified semantics. The source reachability/terms/rate-limit matrix must be tested from the actual GitHub Actions runtime. See [Operating plan](docs/OPERATING-PLAN.md) and [Issue #10](https://github.com/Mehran0960/tabdeal-ai-trader-public/issues/10).
+The active research lane now collects international public market history and screens pre-registered candidate strategies from Binance Spot USDT data. Binance Spot and Kraken Spot remain source inputs; each candidate still requires independent confirmation against fresh Tabdeal Spot data before any paper order is considered. External prices are research inputs, never Tabdeal execution prices. Match quote currencies, timestamps, pair identity and local basis; do not convert IRT to RIAL/TOMAN or infer an executable local price without verified semantics. The source reachability/terms/rate-limit matrix must be tested from the actual GitHub Actions runtime. See [Operating plan](docs/OPERATING-PLAN.md) and [Issue #10](https://github.com/Mehran0960/tabdeal-ai-trader-public/issues/10). Social crowd recommendations are now documented as an **untrusted, research-only auxiliary source**; they must be captured prospectively and validated against Tabdeal-local fills/costs. See [Social signal discovery policy](docs/SOCIAL-SIGNAL-DISCOVERY.md).
 
 ## Scope
 
@@ -33,7 +33,7 @@ The active research lane now collects international public market history and sc
 - The current public trades endpoint is queried as a single recent page (up to 1,000 records). A capped page is flagged as potentially truncated; an uncapped page is still not assumed to be complete history.
 - Recent trades and a single order-book snapshot are not a validated candle history. The scanner does not fabricate OHLC candles from them. The public Spot WebSocket documentation lists order-book updates only. A passive probe of the Binance-style `@trade` and `@aggTrade` topics on 2026-11-25 returned `INVALID_FORMAT` for both; these are not usable Spot streams. The depth feed is used for provisional liquidity/spread diagnostics, not trade signals; the docs do not fully specify snapshot-vs-delta synchronization, so these metrics are not execution-grade yet.
 - IRT quote-unit and settlement semantics remain unverified. The code keeps IRT marked as `IRT_UNVERIFIED` in market snapshots and Spot depth history; it must not be silently treated as RIAL or TOMAN.
-- The public signal page is parsed as an HTML/Nuxt payload, not a stable official API. Only the first returned page is captured when pagination is incomplete; rows are candidate-discovery metadata, not entry signals.
+- The public signal page is parsed as an HTML/Nuxt payload, not a stable official API. Only the first returned page is captured when pagination is incomplete; rows are candidate-discovery metadata, not entry signals. The latest observed scheduled capture ([run 45784659336](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45784659336)) found the source page about 18h 55m old and returned only 10/14 rows; it was correctly marked stale and ineligible for trade research. This workflow does not collect Telegram signals.
 - TDEX is a separate decentralized swap path and is excluded from the automatic Spot executor.
 - No strategy in this project is currently certified profitable. Paper/backtest results are hypotheses, not a promise of future returns.
 
@@ -62,7 +62,7 @@ Do not treat a strategy as eligible for real-money use until it has:
 5. A sustained forward paper record with independent reconciliation and drawdown/kill-switch tests.
 6. A separately audited fail-closed execution adapter and explicit owner approval for any capped live pilot.
 
-The preferred result may be **no trade**. No return is guaranteed.
+The preferred result may be **no trade**. No return is guaranteed. Third-party social-channel recommendations are not executable instructions; they remain research-only until the full policy in [Social signal discovery](docs/SOCIAL-SIGNAL-DISCOVERY.md) is satisfied.
 
 ## Public/private separation
 
