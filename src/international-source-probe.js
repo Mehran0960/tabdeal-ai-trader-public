@@ -48,7 +48,7 @@ export const INTERNATIONAL_SOURCE_PROBES = Object.freeze([
     id: "coinmetrics_reference_rate",
     provider: "coinmetrics",
     optional: true,
-    url: "https://api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=ReferenceRateUSD&frequency=1d&limit_per_asset=2"
+    url: "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=ReferenceRateUSD&frequency=1d&limit_per_asset=2"
   },
   {
     id: "defillama_stablecoin_history",
@@ -174,8 +174,14 @@ export function inspectInternationalProbePayload(id, payload) {
     const validRows = payload.filter(row =>
       isRecord(row) &&
       Number.isSafeInteger(Number(row.date)) &&
-      Number.isFinite(Number(row.totalCirculating)) &&
-      Number(row.totalCirculating) > 0
+      isRecord(row.totalCirculating) &&
+      isRecord(row.totalCirculatingUSD) &&
+      Object.values(row.totalCirculating).some(value =>
+        Number.isFinite(Number(value)) && Number(value) >= 0
+      ) &&
+      Object.values(row.totalCirculatingUSD).some(value =>
+        Number.isFinite(Number(value)) && Number(value) >= 0
+      )
     );
     return validRows.length === payload.length
       ? {schemaStatus: "ok", recordCount: payload.length}
