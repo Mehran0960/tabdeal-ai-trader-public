@@ -43,6 +43,24 @@ export const INTERNATIONAL_SOURCE_PROBES = Object.freeze([
     provider: "coingecko",
     optional: true,
     url: "https://api.coingecko.com/api/v3/ping"
+  },
+  {
+    id: "coinmetrics_reference_rate",
+    provider: "coinmetrics",
+    optional: true,
+    url: "https://api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=ReferenceRateUSD&frequency=1d&limit_per_asset=2"
+  },
+  {
+    id: "defillama_stablecoin_history",
+    provider: "defillama",
+    optional: true,
+    url: "https://stablecoins.llama.fi/stablecoincharts/all"
+  },
+  {
+    id: "alternative_fear_greed",
+    provider: "alternative_me",
+    optional: true,
+    url: "https://api.alternative.me/fng/?limit=2&format=json"
   }
 ]);
 
@@ -135,6 +153,50 @@ export function inspectInternationalProbePayload(id, payload) {
       : {schemaStatus: "invalid_payload", recordCount: 0};
   }
 
+  if (id === "coinmetrics_reference_rate") {
+    const rows = Array.isArray(payload.data) ? payload.data : [];
+    const validRows = rows.filter(row =>
+      isRecord(row) &&
+      String(row.asset || "").toLowerCase() === "btc" &&
+      typeof row.time === "string" &&
+      Number.isFinite(Number(row.ReferenceRateUSD)) &&
+      Number(row.ReferenceRateUSD) > 0
+    );
+    return validRows.length === rows.length && rows.length > 0
+      ? {schemaStatus: "ok", recordCount: rows.length}
+      : {schemaStatus: "invalid_payload", recordCount: rows.length};
+  }
+
+  if (id === "defillama_stablecoin_history") {
+    if (!Array.isArray(payload) || payload.length === 0) {
+      return {schemaStatus: "invalid_payload", recordCount: Array.isArray(payload) ? payload.length : 0};
+    }
+    const validRows = payload.filter(row =>
+      isRecord(row) &&
+      Number.isSafeInteger(Number(row.date)) &&
+      Number.isFinite(Number(row.totalCirculating)) &&
+      Number(row.totalCirculating) > 0
+    );
+    return validRows.length === payload.length
+      ? {schemaStatus: "ok", recordCount: payload.length}
+      : {schemaStatus: "invalid_payload", recordCount: payload.length};
+  }
+
+  if (id === "alternative_fear_greed") {
+    const rows = Array.isArray(payload.data) ? payload.data : [];
+    const validRows = rows.filter(row =>
+      isRecord(row) &&
+      Number.isInteger(Number(row.value)) &&
+      Number(row.value) >= 0 &&
+      Number(row.value) <= 100 &&
+      Number.isSafeInteger(Number(row.timestamp)) &&
+      Number(row.timestamp) > 0
+    );
+    return validRows.length === rows.length && rows.length > 0
+      ? {schemaStatus: "ok", recordCount: rows.length}
+      : {schemaStatus: "invalid_payload", recordCount: rows.length};
+  }
+
   return {schemaStatus: "unknown_probe", recordCount: 0};
 }
 
@@ -147,7 +209,7 @@ function classifyHttpFailure(status) {
 
 export function summarizeProviderReachability(results) {
   const providers = {};
-  for (const provider of ["binance", "kraken", "coingecko"]) {
+  for (const provider of ["binance", "kraken", "coingecko", "coinmetrics", "defillama", "alternative_me"]) {
     const rows = results.filter(item => item.provider === provider);
     if (!rows.length) continue;
     const reachableCount = rows.filter(item => item.status === "reachable").length;
