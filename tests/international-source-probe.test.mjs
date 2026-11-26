@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  INTERNATIONAL_SOURCE_PROBES,
   inspectInternationalProbePayload,
   runInternationalSourceProbe,
   summarizeProviderReachability
@@ -88,14 +89,26 @@ test("runs bounded public probes and returns only response metadata", async () =
     now: () => new Date("2026-11-26T00:00:00.000Z")
   });
   assert.equal(report.requiredProviderStatus, "reachable");
-  assert.equal(report.probes.length, 10);
+  assert.equal(report.probes.length, 8);
   assert.equal(report.safety.ordersSubmitted, 0);
   assert.equal(report.safety.credentialsUsed, false);
   assert.equal(report.probes.find(item => item.id === "coingecko_ping").status, "reachable");
-  assert.equal(report.probes.find(item => item.id === "coinmetrics_reference_rate").status, "reachable");
-  assert.equal(report.probes.find(item => item.id === "defillama_stablecoin_history").status, "reachable");
   assert.equal(report.probes.find(item => item.id === "alternative_fear_greed").status, "reachable");
   assert.equal(Object.hasOwn(report.probes[0], "price"), false);
+});
+
+test("keeps non-approved provider schema validators offline and out of recurring probes", () => {
+  const coinMetrics = inspectInternationalProbePayload("coinmetrics_reference_rate", {data: [
+    {asset: "btc", time: "2026-11-25T00:00:00.000Z", ReferenceRateUSD: "90000"},
+    {asset: "btc", time: "2026-11-26T00:00:00.000Z", ReferenceRateUSD: "91000"}
+  ]});
+  assert.deepEqual(coinMetrics, {schemaStatus: "ok", recordCount: 2});
+  const defiLlama = inspectInternationalProbePayload("defillama_stablecoin_history", [
+    {date: "1795564800", totalCirculating: {peggedUSD: 300000000000}, totalCirculatingUSD: {peggedUSD: 300500000000}},
+    {date: "1795651200", totalCirculating: {peggedUSD: 301000000000}, totalCirculatingUSD: {peggedUSD: 301500000000}}
+  ]);
+  assert.deepEqual(defiLlama, {schemaStatus: "ok", recordCount: 2});
+  assert.equal(INTERNATIONAL_SOURCE_PROBES.some(item => ["coinmetrics", "defillama"].includes(item.provider)), false);
 });
 
 test("marks optional keyless source errors without blocking required providers", () => {
