@@ -3,24 +3,28 @@
 Status: **read-only capability probe completed successfully from GitHub Actions runner on 2026-11-26**. The exact run is [45757469205](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45757469205).
 
 
-## Multi-timeframe history and strategy screen — 2026-11-26
+## Five-asset multi-timeframe history and strategy screen — 2026-11-26
 
-The separate [International Market History Capture](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795173580) workflow appended fresh closed candles and local Tabdeal USDT books to the `signal-history` branch. Its next scheduled cadence is configured for every 15 minutes at minute 05/20/35/50. The strategy research workflow is configured hourly at minute 12.
+The history workflow is configured every 15 minutes at minute 05/20/35/50. When the DOGE series was added, the automatic selector detected missing asset/timeframe history and chose **backfill**, not incremental collection. The completed [backfill run 45797397256](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797397256) captured:
+- 80,085 closed Binance Spot candles (all five assets × 15m/1h/4h).
+- 10,800 closed Kraken Spot candles, including DOGE/USD via `XDGUSD`.
+- Five valid Tabdeal USDT Spot order-book snapshots.
+- 10,800 cross-venue candle-return comparisons.
+- Zero source/series errors. The append-only history accepted 35,050 new records and recognized 66,640 as existing duplicates.
 
-Latest fully validated report: [GitHub Actions run 45795362370](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370), [full JSON artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45795362370/artifacts/15103963982).
+The strategy research workflow is configured hourly at minute 12. Latest post-backfill report: [run 45797841288](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288), [full report artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45797841288/artifacts/15106840785).
 
 Observed report:
-- Read 66,756 JSONL history records; selected 64,164 Binance Spot USDT candles for BTCUSDT, ETHUSDT, SOLUSDT and XRPUSDT.
-- 15m: 11,592 closed candles (2,898 per asset); 1h: 35,052 (8,763 per asset); 4h: 17,520 (4,380 per asset).
-- All 12 asset/timeframe series passed freshness checks. No duplicates or missing intervals were detected in these selected Binance series.
-- Latest closed bars were 09:45 UTC (15m), 09:00 UTC (1h) and 08:00 UTC (4h) on 2026-11-26.
-- Tested 108 fixed hypotheses: four assets × three timeframes × EMA trend, Donchian breakout and RSI mean-reversion × three cost cases. Each profile used an 80/20 discovery/untouched-holdout split; OOS windows were 68 (15m), 109 (1h) and 108 (4h) per hypothesis.
-- One global Benjamini-Hochberg correction was applied across the full 108-hypothesis family; one-sided exact binomial sign tests were used for window outperformance.
+- Read 101,806 history records; selected 80,189 Binance Spot USDT candles across BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT and DOGEUSDT.
+- 15m: 14,475 closed candles (2,895 per asset); 1h: 43,815 (8,763 per asset); 4h: 21,899 (4,379–4,380 per asset).
+- All 15 asset/timeframe series passed freshness checks. No duplicate candle conflicts or missing intervals were detected.
+- Tested 135 fixed hypotheses: five assets × three timeframes × EMA trend, Donchian breakout and RSI mean-reversion × three cost scenarios. Each profile uses an 80/20 discovery/untouched-holdout split; each asset/timeframe has at least 60 sequential non-overlapping OOS windows.
+- One global Benjamini-Hochberg correction was applied across the full 135-hypothesis family; one-sided exact binomial sign tests were used for window outperformance.
 - Cost cases are **assumptions, not verified Tabdeal fees**. Per-side fee/slippage bps: 15m base 10/20, moderate 20/40, severe 35/70; 1h base 10/15, moderate 20/30, severe 35/55; 4h base 10/10, moderate 20/25, severe 35/50.
-- Result: **zero candidates passed all gates**. Profitable net OOS cases: 15m 0/36; 1h 1/36 (0.45% in the base-cost XRP Donchian case, but it failed the worst-window drawdown and untouched-holdout gates); 4h 4/36 (three base and one moderate cases), but none survived all cost, consistency, drawdown, FDR and holdout requirements. All 12 severe-cost cases per timeframe were unprofitable.
+- Result: **zero candidates passed all gates**. Net-profitable OOS cases: 15m 0/45; 1h 1/45 (XRP Donchian base +0.398%, but worst-window drawdown 1.595% breached the 1% gate and the untouched holdout returned -1.190%); 4h 4/45 (three base and one moderate). The best 4h case was XRP Donchian base +2.445%, but its q-value was 0.09035 and only 57.41% of OOS windows beat the benchmark. All severe-cost cases were unprofitable. DOGE was net-negative in all 27 hypotheses.
 
-This is a negative research result, not an operating failure. It prevents an unsupported strategy from being promoted. **No Paper or live order is authorized by this report.** The Tabdeal-local depth synchronization, actual account fee tier/permissions, and IRT denomination/settlement remain independent gates.
- 
+This is a negative research result, not an operating failure. It prevents a weak strategy from being promoted. **No Paper or live order is authorized by this report.** Tabdeal's local depth synchronization, actual account fee tier/permissions and IRT denomination/settlement remain independent blockers.
+
 ## Why this lane exists
 
 Tabdeal's currently documented public Spot interface is insufficient on its own for complete historical signal research: the Spot trade stream contract has not been established, the probed Binance-style topic names were rejected, and the public signal page is not a complete versioned historical feed. International sources are therefore used to discover and test candidate signals. Tabdeal remains the intended execution venue, and every candidate must be reconfirmed locally on Tabdeal.
