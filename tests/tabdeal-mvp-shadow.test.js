@@ -261,6 +261,7 @@ test("forward paper markouts ignore carry-forward no-trade target candles",async
   assert.equal(writes[0].sql.includes("SELECT symbol"),true);
   writes.length=0;
   await close("complete");
-  assert.equal(writes.length,4);
-  assert.equal(writes.slice(1).length,3);
+  assert.equal(writes.length,3);
+  assert.equal(writes.slice(1).length,2);
+  assert.ok(writes.some(row=>row.sql?.includes("markout_5m_close_price")));
 });
