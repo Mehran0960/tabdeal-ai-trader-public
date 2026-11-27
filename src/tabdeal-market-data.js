@@ -259,7 +259,7 @@ export async function runTabdealPublicMarketScout({
   timeoutMs = 12_000,
   tradeLimit = TABDEAL_PUBLIC_TRADE_LIMIT
 } = {}) {
-  if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length > 10) {
+  if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length > 20) {
     throw new Error("tabdeal_research_symbols_invalid");
   }
   if (!Number.isSafeInteger(tradeLimit) || tradeLimit < 1 || tradeLimit > TABDEAL_PUBLIC_TRADE_LIMIT) {
