@@ -315,7 +315,7 @@ test("forward paper markout stays unresolved when no real trade occurs within th
 
 
 test("multi-asset watchlist is limited to the reviewed Spot pilot",()=>{
-  assert.deepEqual(TABDEAL_PAPER_WATCHLIST,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT"]);
+  assert.deepEqual(TABDEAL_PAPER_WATCHLIST,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","PAXGUSDT"]);
 });
 
 test("multi-asset candle builders retain the requested Spot symbol",()=>{
@@ -446,4 +446,10 @@ test("quiet recent-trade windows keep explicit no-trade bars without loosening s
   assert.equal(result.candles.at(-1).coverage_status,"no_trade");
   assert.equal(result.candles.at(-1).close_price,"102");
   assert.ok(result.candles.every(candle=>candle.symbol==="ETHUSDT"));
+});
+
+
+test("PAXGUSDT is the only added gold-backed research candidate; XAUT is not implicitly enabled",()=>{
+  assert.ok(TABDEAL_PAPER_WATCHLIST.includes("PAXGUSDT"));
+  assert.equal(TABDEAL_PAPER_WATCHLIST.includes("XAUTUSDT"),false);
 });
