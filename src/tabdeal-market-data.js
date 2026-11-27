@@ -2,7 +2,7 @@ const DEFAULT_API_BASE = "https://api1.tabdeal.org/r/api/v1";
 
 export const TABDEAL_PUBLIC_RESEARCH_SYMBOLS = Object.freeze([
   "BTCIRT", "BTCUSDT",
-  "ETHIRT", "ETHUSDT",
+  "ETHIRT", "ETHUSDT", "ETHBTC",
   "SOLIRT", "SOLUSDT",
   "XRPIRT", "XRPUSDT",
   "DOGEIRT", "DOGEUSDT"
@@ -299,9 +299,8 @@ export async function runTabdealPublicMarketScout({
     }
 
     const quoteAsset = market.quoteAsset.trim().toUpperCase();
-    const expectedQuote = symbol.endsWith("IRT") ? "IRT" : "USDT";
-    const expectedBase = symbol.slice(0, -expectedQuote.length);
-    if (quoteAsset !== expectedQuote || market.baseAsset.trim().toUpperCase() !== expectedBase) {
+    const expectedBase = market.baseAsset.trim().toUpperCase();
+    if (expectedBase + quoteAsset !== symbol) {
       rejected.push({symbol, reason: "exchange_metadata_symbol_asset_mismatch"});
       continue;
     }
@@ -336,7 +335,7 @@ export async function runTabdealPublicMarketScout({
       symbol,
       baseAsset: expectedBase,
       quoteAsset,
-      quoteUnitCode: quoteAsset === "IRT" ? "IRT_UNVERIFIED" : "USDT",
+      quoteUnitCode: quoteAsset === "IRT" ? "IRT_UNVERIFIED" : quoteAsset,
       marketStatus: market.status,
       isSpotTradingAllowed: market.isSpotTradingAllowed === true,
       permissions: market.permissions.filter(value => typeof value === "string").slice(0, 10),
