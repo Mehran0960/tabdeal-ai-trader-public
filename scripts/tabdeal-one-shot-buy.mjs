@@ -7,9 +7,8 @@ const API_BASE = "https://api1.tabdeal.org";
 export const ONE_SHOT_SYMBOL = "BTCUSDT";
 export const ONE_SHOT_QUOTE_ASSET = "USDT";
 export const ONE_SHOT_QUOTE_AMOUNT = "1.00000000";
-export const ONE_SHOT_CLIENT_ID_PREFIX = "t1shot-";
-export const ONE_SHOT_CLIENT_ORDER_ID = "t1shot-btcusdt-20261127-02";
-export const ONE_SHOT_LOCK_REF = "refs/tags/tabdeal-one-shot-1usdt-20261127-02";
+export const ONE_SHOT_CLIENT_ID_PREFIX = "t1shot-btcusdt-";
+const ONE_SHOT_LOCK_TAG_PREFIX = "tabdeal-one-shot-buy-";
 const MAX_SPREAD_BPS = 30;
 const MAX_BOOK_SLIPPAGE_BPS = 5;
 const RECV_WINDOW_MS = 5_000;
@@ -26,8 +25,20 @@ function apiCode(data) {
   return isRecord(data) && (typeof data.code === "number" || typeof data.code === "string")
     ? data.code : null;
 }
-function clientOrderId() {
-  return ONE_SHOT_CLIENT_ORDER_ID;
+function validatedRunId(runId) {
+  const value = String(runId ?? "");
+  if (!/^\d{1,20}$/.test(value)) throw new Error("workflow_run_id_invalid");
+  return value;
+}
+
+export function buildOneShotClientOrderId(runId) {
+  const id = ONE_SHOT_CLIENT_ID_PREFIX + validatedRunId(runId);
+  if (id.length > 36) throw new Error("workflow_client_order_id_too_long");
+  return id;
+}
+
+export function buildOneShotLockRef(runId) {
+  return "refs/tags/" + ONE_SHOT_LOCK_TAG_PREFIX + validatedRunId(runId);
 }
 function signParams(params, secret) {
   const query = new URLSearchParams();
@@ -394,26 +405,30 @@ function normalizedOrder(data, fallbackClientOrderId, fallbackType = "MARKET") {
     fills
   };
 }
-export async function claimOneShotExecutionLock({ token, repository, commitSha, fetchImpl = fetch } = {}) {
+export async function claimOneShotExecutionLock({ token, repository, commitSha, runId, fetchImpl = fetch } = {}) {
+  let lockRef;
+  try { lockRef = buildOneShotLockRef(runId); }
+  catch { return {claimed: false, result: "one_shot_lock_run_id_invalid"}; }
   const validRepo = typeof repository === "string" && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository);
   if (typeof token !== "string" || !token.trim() || !validRepo ||
       typeof commitSha !== "string" || !/^[a-f0-9]{40}$/i.test(commitSha) ||
       typeof fetchImpl !== "function") return {claimed: false, result: "one_shot_lock_configuration_missing"};
+  const tag = lockRef.slice("refs/tags/".length);
   const base = "https://api.github.com/repos/" + repository;
   const headers = {accept: "application/vnd.github+json", authorization: "Bearer " + token,
     "X-GitHub-Api-Version": "2022-11-28", "content-type": "application/json"};
   try {
-    const existing = await fetchImpl(base + "/git/ref/tags/" + encodeURIComponent(ONE_SHOT_LOCK_REF.slice("refs/tags/".length)),
+    const existing = await fetchImpl(base + "/git/ref/tags/" + encodeURIComponent(tag),
       {method: "GET", headers, redirect: "error", signal: AbortSignal.timeout(8_000)});
-    if (existing.ok) return {claimed: false, result: "one_shot_already_claimed"};
+    if (existing.ok) return {claimed: false, result: "one_shot_execution_already_claimed"};
     if (existing.status !== 404) return {claimed: false, result: "one_shot_lock_read_unresolved"};
   } catch { return {claimed: false, result: "one_shot_lock_read_unresolved"}; }
   try {
     const created = await fetchImpl(base + "/git/refs", {method: "POST", headers,
-      body: JSON.stringify({ref: ONE_SHOT_LOCK_REF, sha: commitSha}), redirect: "error",
+      body: JSON.stringify({ref: lockRef, sha: commitSha}), redirect: "error",
       signal: AbortSignal.timeout(8_000)});
-    if (created.status === 201) return {claimed: true, result: "one_shot_lock_claimed"};
-    if (created.status === 422) return {claimed: false, result: "one_shot_already_claimed"};
+    if (created.status === 201) return {claimed: true, result: "one_shot_execution_lock_claimed"};
+    if (created.status === 422) return {claimed: false, result: "one_shot_execution_already_claimed"};
     return {claimed: false, result: "one_shot_lock_create_unresolved"};
   } catch { return {claimed: false, result: "one_shot_lock_create_unresolved"}; }
 }
@@ -459,8 +474,11 @@ export async function runTabdealOneShotBuy({
   }
   if (typeof fetchImpl !== "function") return {...base, result: "fetch_unavailable", orderSubmitted: false};
   let clientId;
-  try { clientId = clientOrderId(); }
-  catch { return {...base, result: "workflow_run_id_missing", orderSubmitted: false}; }
+  try { clientId = buildOneShotClientOrderId(runId); }
+  catch (error) {
+    return {...base, result: "workflow_run_id_invalid",
+      reason: String(error?.message || error).slice(0, 100), orderSubmitted: false};
+  }
 
   let preflight;
   try {
@@ -499,7 +517,7 @@ export async function runTabdealOneShotBuy({
     return {...base, result: "pre_submit_order_lookup_failed_halt", reason: String(error?.message || error).slice(0, 160), preflight, orderSubmitted: false};
   }
 
-  const lock = await claimLock({token: githubToken, repository, commitSha, fetchImpl});
+  const lock = await claimLock({token: githubToken, repository, commitSha, runId, fetchImpl});
   if (!lock?.claimed) return {...base, result: lock?.result || "one_shot_lock_not_claimed", preflight, orderSubmitted: false};
 
   const params = {

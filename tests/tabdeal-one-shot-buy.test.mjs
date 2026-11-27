@@ -4,7 +4,8 @@ import {createHmac} from "node:crypto";
 import {
   ONE_SHOT_SYMBOL,
   ONE_SHOT_QUOTE_AMOUNT,
-  ONE_SHOT_CLIENT_ORDER_ID,
+  buildOneShotClientOrderId,
+  buildOneShotLockRef,
   runTabdealOneShotBuy,
   claimOneShotExecutionLock,
   safeOneShotSummary
@@ -67,11 +68,11 @@ function validAccount(overrides = {}) {
     ...overrides
   };
 }
-function filledOrder() {
+function filledOrder(clientId = buildOneShotClientOrderId("12345")) {
   return {
     symbol: "BTCUSDT",
     orderId: 7001,
-    clientOrderId: ONE_SHOT_CLIENT_ORDER_ID,
+    clientOrderId: clientId,
     price: "0",
     origQty: "0.00001111",
     executedQty: "0.00001111",
@@ -164,7 +165,7 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(params.get("side"), "BUY");
   assert.equal(params.get("type"), "MARKET");
   assert.equal(params.get("quoteOrderQty"), report.preflight.quoteOrderQty);
-  assert.equal(params.get("newClientOrderId"), ONE_SHOT_CLIENT_ORDER_ID);
+  assert.equal(params.get("newClientOrderId"), buildOneShotClientOrderId("12345"));
   assert.equal(params.has("quantity"), false);
   assert.equal(report.automaticRetry, false);
   assert.equal(report.sellOrderSent, false);
@@ -419,13 +420,13 @@ test("reuses the same client order ID on rerun and does not duplicate a prior or
 });
 
 
-test("does not submit when the permanent one-shot lock already exists", async () => {
+test("halts when this specific workflow run has already claimed its execution lock", async () => {
   const {fetchImpl, calls} = makeFetch();
   const report = await runTabdealOneShotBuy({
-    claimLock: async () => ({claimed: false, result: "one_shot_already_claimed"}),
+    claimLock: async () => ({claimed: false, result: "one_shot_execution_already_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
-  assert.equal(report.result, "one_shot_already_claimed");
+  assert.equal(report.result, "one_shot_execution_already_claimed");
   assert.equal(report.orderSubmitted, false);
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
@@ -447,24 +448,58 @@ test("reconciles an HTTP 5xx by client ID without repeating POST", async () => {
   assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
-test("atomically claims a permanent GitHub ref before the only order POST", async () => {
+test("claims one execution lock per workflow run, while blocking a rerun of the same run", async () => {
   const calls = [];
+  const createdRefs = new Set();
   const fetchImpl = async (url, init = {}) => {
-    calls.push({url: String(url), method: init.method});
-    if (init.method === "GET") return new Response("not found", {status: 404});
-    if (init.method === "POST") return new Response(JSON.stringify({ref: "refs/tags/tabdeal-one-shot-1usdt-20261127"}), {status: 201});
+    const method = String(init.method || "GET").toUpperCase();
+    const urlValue = String(url);
+    calls.push({url: urlValue, method, init});
+    if (method === "GET") {
+      const tag = decodeURIComponent(urlValue.split("/git/ref/tags/")[1] || "");
+      return createdRefs.has(tag) ? new Response("exists", {status: 200}) : new Response("not found", {status: 404});
+    }
+    if (method === "POST") {
+      const payload = JSON.parse(init.body);
+      const tag = payload.ref.split("/").at(-1);
+      if (createdRefs.has(tag)) return jsonResponse({message: "already exists"}, 422);
+      createdRefs.add(tag);
+      return jsonResponse({ref: payload.ref}, 201);
+    }
     throw new Error("unexpected method");
   };
-  const result = await claimOneShotExecutionLock({
-    token: "unit-test-token",
-    repository: "owner/repo",
-    commitSha: "a".repeat(40),
-    fetchImpl
+
+  const first = await claimOneShotExecutionLock({
+    token: "unit-test-token", repository: "owner/repo", commitSha: "a".repeat(40),
+    runId: "12345", fetchImpl
   });
-  assert.equal(result.claimed, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].method, "GET");
-  assert.equal(calls[1].method, "POST");
+  const rerun = await claimOneShotExecutionLock({
+    token: "unit-test-token", repository: "owner/repo", commitSha: "a".repeat(40),
+    runId: "12345", fetchImpl
+  });
+  const nextRun = await claimOneShotExecutionLock({
+    token: "unit-test-token", repository: "owner/repo", commitSha: "a".repeat(40),
+    runId: "12346", fetchImpl
+  });
+
+  assert.equal(first.claimed, true);
+  assert.equal(rerun.claimed, false);
+  assert.equal(rerun.result, "one_shot_execution_already_claimed");
+  assert.equal(nextRun.claimed, true);
+  const created = calls.filter(call => call.method === "POST").map(call => JSON.parse(call.init.body).ref);
+  assert.deepEqual(created, [
+    buildOneShotLockRef("12345"),
+    buildOneShotLockRef("12346")
+  ]);
+  assert.notEqual(created[0], created[1]);
+});
+
+test("builds distinct client IDs and execution lock refs for different workflow runs", () => {
+  assert.notEqual(buildOneShotClientOrderId("12345"), buildOneShotClientOrderId("12346"));
+  assert.notEqual(buildOneShotLockRef("12345"), buildOneShotLockRef("12346"));
+  assert.equal(buildOneShotClientOrderId("12345"), "t1shot-btcusdt-12345");
+  assert.throws(() => buildOneShotClientOrderId("bad-run-id"), /workflow_run_id_invalid/);
+  assert.throws(() => buildOneShotLockRef(""), /workflow_run_id_invalid/);
 });
 
 test("safe summary never exposes API credentials", async () => {

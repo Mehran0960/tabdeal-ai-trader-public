@@ -1,4 +1,4 @@
-name: Tabdeal one-shot BTCUSDT Spot buy (maximum 1 USDT)
+name: Tabdeal repeatable BTCUSDT Spot buy (maximum 1 USDT per run)
 
 on:
   push:
@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: tabdeal-one-shot-live-buy
+  group: tabdeal-live-buy
   cancel-in-progress: false
 
 jobs:
@@ -30,11 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify the one-shot execution safety tests
+      - name: Verify repeatable per-run execution safety tests
         run: |
           node --check scripts/tabdeal-one-shot-buy.mjs
           node --test tests/tabdeal-one-shot-buy.test.mjs
-      - name: Submit at most one explicitly approved BTCUSDT Spot buy
+      - name: Submit at most one explicitly approved BTCUSDT Spot buy per workflow run
         env:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
