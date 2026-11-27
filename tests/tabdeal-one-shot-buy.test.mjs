@@ -132,6 +132,7 @@ test("requires explicit manual workflow confirmation before any network call", a
 test("sends one capped BTCUSDT quote-sized market buy after all preflight gates pass", async () => {
   const {fetchImpl, calls} = makeFetch();
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "order_accepted_reconciled");
@@ -159,6 +160,7 @@ test("aborts before POST when quoteOrderQty market buys are not allowed", async 
     exchangeInfo: validExchangeInfo({quoteOrderQtyMarketAllowed: false})
   });
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
@@ -171,6 +173,7 @@ test("aborts before POST when free USDT is below the one-USDT cap", async () => 
     account: validAccount({balances: [{asset: "USDT", free: "0.999", freeze: "0"}]})
   });
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
@@ -183,6 +186,7 @@ test("aborts before POST when the venue minimum exceeds one USDT", async () => {
   info[0].filters[0].minNotional = "1.01";
   const {fetchImpl, calls} = makeFetch({exchangeInfo: info});
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
@@ -193,6 +197,7 @@ test("aborts before POST when the venue minimum exceeds one USDT", async () => {
 test("aborts before POST when existing BTCUSDT open orders are present", async () => {
   const {fetchImpl, calls} = makeFetch({openOrders: [{orderId: 77, symbol: "BTCUSDT"}]});
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
@@ -205,6 +210,7 @@ test("aborts before POST when spread exceeds the configured execution ceiling", 
     depth: validDepth({bids: [["89000", "2"]], asks: [["90000", "2"]]})
   });
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
@@ -218,6 +224,7 @@ test("rejects a valid order once and never retries a 4xx response", async () => 
     postBody: {code: -1013, msg: "Filter failure"}
   });
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "order_rejected_no_retry");
@@ -232,6 +239,7 @@ test("reconciles an uncertain POST once and never repeats the order request", as
     priorOrderBody: {code: 1204, msg: "Order not found"}
   });
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "post_outcome_unknown_halt_no_retry");
@@ -242,6 +250,7 @@ test("reconciles an uncertain POST once and never repeats the order request", as
 test("reuses the same client order ID on rerun and does not duplicate a prior order", async () => {
   const {fetchImpl, calls} = makeFetch({recoveredOrder: filledOrder()});
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "existing_order_reconciled_no_resubmit");
@@ -301,6 +310,7 @@ test("atomically claims a permanent GitHub ref before the only order POST", asyn
 test("safe summary never exposes API credentials", async () => {
   const {fetchImpl} = makeFetch();
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   const summary = JSON.stringify(safeOneShotSummary(report));
