@@ -63,7 +63,7 @@ function validAccount(overrides = {}) {
     takerCommission: 40,
     canTrade: true,
     permissions: ["SPOT"],
-    balances: [{asset: "USDT", free: "1.00000000", freeze: "0"}],
+    balances: [{asset: "USDT", free: "1.05000000", freeze: "0"}],
     ...overrides
   };
 }
@@ -172,15 +172,19 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(report.withdrawalOrTransferSent, false);
 });
 
-test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled", async () => {
+test("matches the exchange UI: 1 USDT quote input rounds BTC quantity up to the next LOT_SIZE step", async () => {
   const {fetchImpl, calls} = makeFetch({
     exchangeInfo: validLimitExchangeInfo(),
+    depth: validDepth({
+      bids: [["61400.00", "1"]],
+      asks: [["61463.50", "2"]]
+    }),
     postBody: {
       ...filledOrder(),
-      price: "90045.00",
-      origQty: "0.00001110",
-      executedQty: "0.00001110",
-      cummulativeQuoteQty: "0.99949950",
+      price: "61494.23",
+      origQty: "0.00001700",
+      executedQty: "0.00001700",
+      cummulativeQuoteQty: "1.04540191",
       type: "LIMIT"
     }
   });
@@ -190,10 +194,14 @@ test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled"
   });
   assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.preflight.type, "LIMIT");
-  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.quoteBudget);
-  assert.equal(report.preflight.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.preflight.requestedQuoteAmount, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.preflight.quantity, "0.00001700");
+  assert.ok(report.preflight.estimatedQuoteNotional > 1);
+  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.maxQuoteNotional);
+  assert.equal(report.preflight.maxTotalDebitQuote, 1.05);
+  assert.ok(report.preflight.estimatedTotalDebitQuote <= 1.05);
   assert.equal(report.preflight.commissionBps, 40);
-  assert.equal(report.preflight.maxTotalDebitQuote, 1);
+  assert.equal(report.preflight.quantityRoundedUpToLotStep, true);
   const post = calls.find(call => call.method === "POST");
   assert.ok(post);
   const params = signedBodyParams(post);
@@ -201,7 +209,8 @@ test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled"
   assert.equal(params.has("quoteOrderQty"), false);
   assert.equal(params.get("price"), report.preflight.price);
   assert.equal(params.get("quantity"), report.preflight.quantity);
-  assert.ok(Number(params.get("price")) * Number(params.get("quantity")) <= report.preflight.quoteBudget);
+  assert.ok(Number(params.get("price")) * Number(params.get("quantity")) > 1);
+  assert.ok(report.preflight.estimatedTotalDebitQuote <= report.preflight.maxTotalDebitQuote);
   assert.equal(params.get("timeInForce"), null);
 });
 
