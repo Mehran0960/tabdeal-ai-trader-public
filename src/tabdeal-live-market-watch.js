@@ -343,8 +343,19 @@ export function evaluateTabdealRelativeWatch({
     row.relativeUnderperformanceBps=row.fifteenMinuteReturnBps-crossMedian;
     row.relativeZScore=row.relativeUnderperformanceBps/robustScale;
   }
-  const strongest=[...latestRows].sort((a,b)=>b.fifteenMinuteReturnBps-a.fifteenMinuteReturnBps)[0];
-  const candidates=latestRows.filter(row=>
+  const liquidRows=latestRows.filter(row=>
+    row.spreadBps<=TABDEAL_LIVE_WATCH_POLICY.maximumSpreadBps&&
+    row.bidDepthTop5Usdt>=TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt&&
+    row.askDepthTop5Usdt>=TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt
+  );
+  if(liquidRows.length<2){
+    return {status:"no_liquid_source_and_target_pair",availableAssets:latestRows.length,
+      liquidAssets:liquidRows.length,crossSectionMedianReturnBps:crossMedian,
+      assets:latestRows.sort((a,b)=>a.relativeUnderperformanceBps-b.relativeUnderperformanceBps).slice(0,10),
+      candidate:null,tradeAuthorized:false,reason:"two_liquid_markets_required"};
+  }
+  const strongest=[...liquidRows].sort((a,b)=>b.fifteenMinuteReturnBps-a.fifteenMinuteReturnBps)[0];
+  const candidates=liquidRows.filter(row=>
     row.asset!==strongest.asset&&
     row.relativeUnderperformanceBps<=-TABDEAL_LIVE_WATCH_POLICY.minimumRelativeUnderperformanceBps&&
     row.relativeZScore<=-TABDEAL_LIVE_WATCH_POLICY.minimumRelativeZScore&&
