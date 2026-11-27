@@ -76,6 +76,106 @@ function getBalances(account) {
   if (!Array.isArray(account?.balances)) throw new Error("account_balances_missing");
   return account.balances;
 }
+function precisionOf(value) {
+  const text = String(value ?? "");
+  const point = text.indexOf(".");
+  return point < 0 ? 0 : text.length - point - 1;
+}
+function decimalUnits(value, precision) {
+  const [whole, fraction = ""] = String(value).split(".");
+  if (fraction.length > precision && /[1-9]/.test(fraction.slice(precision))) {
+    throw new Error("decimal_precision_exceeds_filter");
+  }
+  return BigInt(whole) * (10n ** BigInt(precision)) +
+    BigInt((fraction.slice(0, precision) + "0".repeat(precision)).slice(0, precision) || "0");
+}
+function unitsDecimal(value, precision) {
+  const base = 10n ** BigInt(precision);
+  const whole = value / base;
+  const fraction = (value % base).toString().padStart(precision, "0");
+  return precision ? whole.toString() + "." + fraction : whole.toString();
+}
+function limitBuyForOneUsdt({symbolInfo, asks, bestAskText}) {
+  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("LIMIT")) {
+    throw new Error("limit_order_type_not_allowed");
+  }
+  const lot = filterOf(symbolInfo, "LOT_SIZE");
+  const minQty = positive(lot?.minQty);
+  const maxQty = positive(lot?.maxQty);
+  const stepSize = positive(lot?.stepSize);
+  const priceFilter = filterOf(symbolInfo, "PRICE_FILTER");
+  const tickSize = positive(priceFilter?.tickSize);
+  const minPrice = positive(priceFilter?.minPrice);
+  const maxPrice = positive(priceFilter?.maxPrice);
+  if (!minQty || !stepSize || !tickSize) throw new Error("limit_lot_or_price_filter_missing");
+
+  const pricePrecision = Math.max(precisionOf(bestAskText), precisionOf(priceFilter.tickSize));
+  const quantityPrecision = Math.max(
+    precisionOf(lot.stepSize),
+    precisionOf(lot.minQty),
+    precisionOf(lot.maxQty ?? lot.stepSize)
+  );
+  if (pricePrecision > 12 || quantityPrecision > 12) throw new Error("filter_precision_unsupported");
+
+  const bestAskUnits = decimalUnits(bestAskText, pricePrecision);
+  const tickUnits = decimalUnits(priceFilter.tickSize, pricePrecision);
+  const maxPriceUnits = (bestAskUnits * BigInt(10_000 + MAX_BOOK_SLIPPAGE_BPS)) / 10_000n;
+  const limitPriceUnits = (maxPriceUnits / tickUnits) * tickUnits;
+  if (limitPriceUnits < bestAskUnits) throw new Error("no_valid_limit_tick_within_slippage_cap");
+  const limitPrice = unitsDecimal(limitPriceUnits, pricePrecision);
+  const limitPriceNumber = Number(limitPrice);
+  if ((minPrice !== null && limitPriceNumber < minPrice) ||
+      (maxPrice !== null && limitPriceNumber > maxPrice)) {
+    throw new Error("limit_price_outside_price_filter");
+  }
+
+  const stepUnits = decimalUnits(lot.stepSize, quantityPrecision);
+  const capUnits = decimalUnits(ONE_SHOT_QUOTE_AMOUNT, 8);
+  const scale = 10n ** BigInt(pricePrecision + quantityPrecision);
+  const quoteScale = 10n ** 8n;
+  const maxQuantityUnits = (capUnits * scale) / (quoteScale * limitPriceUnits);
+  const quantityUnits = (maxQuantityUnits / stepUnits) * stepUnits;
+  const minimumQuantityUnits = decimalUnits(lot.minQty, quantityPrecision);
+  if (quantityUnits < minimumQuantityUnits ||
+      (maxQty !== null && Number(unitsDecimal(quantityUnits, quantityPrecision)) > maxQty)) {
+    throw new Error("one_usdt_limit_quantity_outside_lot_filter");
+  }
+  const quantity = unitsDecimal(quantityUnits, quantityPrecision);
+  const notional = limitPriceNumber * Number(quantity);
+  if (!Number.isFinite(notional) || notional <= 0 ||
+      notional > Number(ONE_SHOT_QUOTE_AMOUNT) + 1e-12) {
+    throw new Error("limit_notional_exceeds_one_usdt");
+  }
+
+  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
+  const minNotional = positive(minNotionalFilter?.minNotional);
+  if (!minNotional || notional + 1e-10 < minNotional ||
+      minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
+    throw new Error("limit_notional_below_venue_minimum");
+  }
+
+  const visibleAskQuantity = asks
+    .filter(level => level.price <= limitPriceNumber)
+    .reduce((sum, level) => sum + level.quantity, 0);
+  if (!Number.isFinite(visibleAskQuantity) ||
+      visibleAskQuantity + 1e-15 < Number(quantity)) {
+    throw new Error("visible_ask_quantity_below_limit_order_size");
+  }
+
+  return {
+    type: "LIMIT",
+    quantity,
+    price: limitPrice,
+    maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
+    estimatedQuoteNotional: notional,
+    minNotional,
+    lotStepSize: lot.stepSize,
+    lotMinQty: lot.minQty,
+    priceTickSize: priceFilter.tickSize,
+    timeInForce: "GTC_DEFAULT",
+    executionMode: "price_capped_limit"
+  };
+}
 function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (!isRecord(symbolInfo) || symbolInfo.symbol !== ONE_SHOT_SYMBOL) {
     throw new Error("btc_usdt_symbol_missing");
@@ -86,24 +186,9 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (symbolInfo.baseAsset !== "BTC" || symbolInfo.quoteAsset !== ONE_SHOT_QUOTE_ASSET) {
     throw new Error("btc_usdt_asset_identity_mismatch");
   }
-  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("MARKET")) {
-    throw new Error("market_order_type_not_allowed");
-  }
-  if (symbolInfo.quoteOrderQtyMarketAllowed !== true) {
-    throw new Error("quote_order_qty_market_not_allowed");
-  }
   if (Array.isArray(symbolInfo.permissions) && !symbolInfo.permissions.includes("SPOT")) {
     throw new Error("spot_permission_missing");
   }
-  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
-  const minNotional = positive(minNotionalFilter?.minNotional);
-  if (!minNotional || minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
-    throw new Error("min_notional_exceeds_one_usdt_or_missing");
-  }
-  const marketLot = filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE");
-  const minQty = positive(marketLot?.minQty);
-  const maxQty = positive(marketLot?.maxQty);
-  if (!minQty) throw new Error("market_lot_size_filter_missing");
 
   if (!isRecord(account) || account.accountType !== "SPOT" || account.canTrade !== true) {
     throw new Error("spot_account_trade_permission_not_confirmed");
@@ -131,42 +216,62 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (!Number.isFinite(spreadBps) || spreadBps > MAX_SPREAD_BPS) {
     throw new Error("spread_above_limit");
   }
-  const maxPrice = bestAsk * (1 + MAX_BOOK_SLIPPAGE_BPS / 10_000);
-  let remainingQuote = Number(ONE_SHOT_QUOTE_AMOUNT);
-  let estimatedBase = 0;
-  let estimatedQuote = 0;
-  for (const level of asks) {
-    if (level.price > maxPrice) break;
-    const levelQuote = level.price * level.quantity;
-    const usedQuote = Math.min(remainingQuote, levelQuote);
-    estimatedBase += usedQuote / level.price;
-    estimatedQuote += usedQuote;
-    remainingQuote -= usedQuote;
-    if (remainingQuote <= 1e-10) break;
+
+  if (symbolInfo.quoteOrderQtyMarketAllowed === true) {
+    if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("MARKET")) {
+      throw new Error("market_order_type_not_allowed");
+    }
+    const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
+    const minNotional = positive(minNotionalFilter?.minNotional);
+    if (!minNotional || minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
+      throw new Error("min_notional_exceeds_one_usdt_or_missing");
+    }
+    const marketLot = filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE");
+    const minQty = positive(marketLot?.minQty);
+    const maxQty = positive(marketLot?.maxQty);
+    if (!minQty) throw new Error("market_lot_size_filter_missing");
+    const maxPrice = bestAsk * (1 + MAX_BOOK_SLIPPAGE_BPS / 10_000);
+    let remainingQuote = Number(ONE_SHOT_QUOTE_AMOUNT);
+    let estimatedBase = 0;
+    let estimatedQuote = 0;
+    for (const level of asks) {
+      if (level.price > maxPrice) break;
+      const levelQuote = level.price * level.quantity;
+      const usedQuote = Math.min(remainingQuote, levelQuote);
+      estimatedBase += usedQuote / level.price;
+      estimatedQuote += usedQuote;
+      remainingQuote -= usedQuote;
+      if (remainingQuote <= 1e-10) break;
+    }
+    if (remainingQuote > 1e-8 || estimatedBase < minQty ||
+        (maxQty !== null && estimatedBase > maxQty)) {
+      throw new Error("visible_ask_depth_or_market_quantity_filter_failed");
+    }
+    return {
+      symbol: ONE_SHOT_SYMBOL, side: "BUY", type: "MARKET",
+      quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
+      maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
+      estimatedQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
+      freeUsdt, minNotional, bestBid, bestAsk, spreadBps,
+      projectedAveragePrice: estimatedQuote / estimatedBase,
+      projectedSlippageBps: ((estimatedQuote / estimatedBase) / bestAsk - 1) * 10_000,
+      estimatedBaseQuantity: estimatedBase,
+      marketOrderAllowed: true,
+      quoteOrderQtyMarketAllowed: true,
+      openOrdersBefore: openOrders.length
+    };
   }
-  if (remainingQuote > 1e-8 || estimatedBase < minQty ||
-      (maxQty !== null && estimatedBase > maxQty)) {
-    throw new Error("visible_ask_depth_or_market_quantity_filter_failed");
-  }
+
+  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0])});
   return {
-    symbol: ONE_SHOT_SYMBOL,
-    side: "BUY",
-    type: "MARKET",
-    quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
-    maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
-    freeUsdt,
-    minNotional,
-    bestBid,
-    bestAsk,
-    spreadBps,
-    projectedAveragePrice: estimatedQuote / estimatedBase,
-    projectedSlippageBps: ((estimatedQuote / estimatedBase) / bestAsk - 1) * 10_000,
-    estimatedBaseQuantity: estimatedBase,
-    marketOrderAllowed: true,
-    quoteOrderQtyMarketAllowed: true,
+    symbol: ONE_SHOT_SYMBOL, side: "BUY", ...limitIntent,
+    freeUsdt, bestBid, bestAsk, spreadBps,
+    marketOrderAllowed: false,
+    quoteOrderQtyMarketAllowed: false,
     openOrdersBefore: openOrders.length
   };
 }
+
 async function publicGet(path, fetchImpl) {
   const response = await fetchImpl(API_BASE + "/r/api/v1" + path, {
     method: "GET",
