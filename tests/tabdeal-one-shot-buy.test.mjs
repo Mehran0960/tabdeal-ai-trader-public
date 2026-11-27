@@ -4,6 +4,7 @@ import {createHmac} from "node:crypto";
 import {
   ONE_SHOT_SYMBOL,
   ONE_SHOT_QUOTE_AMOUNT,
+  ONE_SHOT_CLIENT_ORDER_ID,
   runTabdealOneShotBuy,
   claimOneShotExecutionLock,
   safeOneShotSummary
@@ -68,7 +69,7 @@ function filledOrder() {
   return {
     symbol: "BTCUSDT",
     orderId: 7001,
-    clientOrderId: "t1shot-12345",
+    clientOrderId: ONE_SHOT_CLIENT_ORDER_ID,
     price: "0",
     origQty: "0.00001111",
     executedQty: "0.00001111",
@@ -161,7 +162,7 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(params.get("side"), "BUY");
   assert.equal(params.get("type"), "MARKET");
   assert.equal(params.get("quoteOrderQty"), ONE_SHOT_QUOTE_AMOUNT);
-  assert.equal(params.get("newClientOrderId"), "t1shot-12345");
+  assert.equal(params.get("newClientOrderId"), ONE_SHOT_CLIENT_ORDER_ID);
   assert.equal(params.has("quantity"), false);
   assert.equal(report.automaticRetry, false);
   assert.equal(report.sellOrderSent, false);
