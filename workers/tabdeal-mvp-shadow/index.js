@@ -888,20 +888,32 @@ const LOCAL_PAPER_MARKOUTS = Object.freeze([
 
 export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
   const pending = await env.DB.prepare(
-    "SELECT symbol,strategy_version,candle_open_ms,entry_price,entry_spread_bps " +
+    "SELECT symbol,strategy_version,candle_open_ms,entry_price,entry_spread_bps,entry_observed_at_ms " +
     "FROM tabdeal_local_paper_signals WHERE paper_eligible=1 AND markout_60m_net_bps_fee10 IS NULL " +
     "AND candle_open_ms>=? ORDER BY candle_open_ms LIMIT 10"
   ).bind(nowMs - 65 * 60_000).all();
-  const byTime = new Map(candles.map(row => [row.minuteOpenMs, row]));
+  const orderedCandles = [...candles].sort((a, b) => a.minuteOpenMs - b.minuteOpenMs);
   const statements = [];
   for (const row of pending.results || []) {
     const openMs = Number(row.candle_open_ms);
+    const entryObservedAtMs = Number(row.entry_observed_at_ms);
     const entryPrice = Number(row.entry_price);
     const spread = Number(row.entry_spread_bps);
+    if (!Number.isSafeInteger(entryObservedAtMs) || entryObservedAtMs <= 0 ||
+        !Number.isFinite(entryPrice) || entryPrice <= 0 ||
+        !Number.isFinite(spread) || spread < 0) continue;
     for (const horizon of LOCAL_PAPER_MARKOUTS) {
-      const closeRow = byTime.get(openMs + horizon.minutes * 60_000);
-      // A carry-forward no-trade minute is not an observed exit price.
-      if (!closeRow || closeRow.coverageStatus !== "complete" || closeRow.tradeCount < 1) continue;
+      // Horizons start at the actual virtual entry observation, not the signal candle open.
+      // Use the first real-trade closed minute at/after the target, allowing at most 3m delay.
+      const targetCloseMs = entryObservedAtMs + horizon.minutes * 60_000;
+      const closeRow = orderedCandles.find(candidate => {
+        const closeMs = candidate.minuteOpenMs + 60_000;
+        return closeMs >= targetCloseMs && closeMs <= targetCloseMs + 3 * 60_000 &&
+          candidate.coverageStatus === "complete" && candidate.tradeCount >= 1;
+      });
+      // No-trade carry-forward bars are never treated as an observed exit price.
+      if (!closeRow) continue;
+      const actualElapsedMs = closeRow.minuteOpenMs + 60_000 - entryObservedAtMs;
       const base = calculateLocalPaperMarkout({
         entryPrice, exitClose: closeRow.close, entrySpreadBps: spread,
         feeBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS[0]
@@ -917,14 +929,15 @@ export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
       const suffix = horizon.suffix;
       statements.push(env.DB.prepare(
         "UPDATE tabdeal_local_paper_signals SET " +
+        "markout_" + suffix + "_candle_open_ms=?,markout_" + suffix + "_actual_elapsed_ms=?," +
         "markout_" + suffix + "_close_price=?,markout_" + suffix + "_modeled_exit_price=?," +
         "markout_" + suffix + "_gross_bps=?,markout_" + suffix + "_net_bps_fee10=?," +
         "markout_" + suffix + "_net_bps_fee20=?,markout_" + suffix + "_net_bps_fee40=?," +
         "updated_at_ms=? WHERE symbol=? AND strategy_version=? AND candle_open_ms=? " +
         "AND markout_" + suffix + "_close_price IS NULL"
-      ).bind(closeRow.close, base.modeledExitPrice, base.grossReturnBps,
-        base.netReturnBps, fee20.netReturnBps, fee40.netReturnBps, nowMs,
-        row.symbol, row.strategy_version, openMs));
+      ).bind(closeRow.minuteOpenMs, actualElapsedMs, closeRow.close, base.modeledExitPrice,
+        base.grossReturnBps, base.netReturnBps, fee20.netReturnBps, fee40.netReturnBps,
+        nowMs, row.symbol, row.strategy_version, openMs));
     }
   }
   if (statements.length) await env.DB.batch(statements);
@@ -1089,10 +1102,21 @@ async function readTabdealLocalPaperSummary(env) {
       indicators: parse(latest.indicators_json),
       dataQuality: parse(latest.quality_json),
       book: parse(latest.book_json),
+      entryObservedAt: latest.entry_observed_at_ms
+        ? new Date(Number(latest.entry_observed_at_ms)).toISOString() : null,
       markouts: {
         fiveMinuteNetBpsFee10: latest.markout_5m_net_bps_fee10,
+        fiveMinuteActualElapsedMs: latest.markout_5m_actual_elapsed_ms,
+        fiveMinuteCandleCloseAt: latest.markout_5m_candle_open_ms
+          ? new Date(Number(latest.markout_5m_candle_open_ms) + 60_000).toISOString() : null,
         fifteenMinuteNetBpsFee10: latest.markout_15m_net_bps_fee10,
+        fifteenMinuteActualElapsedMs: latest.markout_15m_actual_elapsed_ms,
+        fifteenMinuteCandleCloseAt: latest.markout_15m_candle_open_ms
+          ? new Date(Number(latest.markout_15m_candle_open_ms) + 60_000).toISOString() : null,
         sixtyMinuteNetBpsFee10: latest.markout_60m_net_bps_fee10,
+        sixtyMinuteActualElapsedMs: latest.markout_60m_actual_elapsed_ms,
+        sixtyMinuteCandleCloseAt: latest.markout_60m_candle_open_ms
+          ? new Date(Number(latest.markout_60m_candle_open_ms) + 60_000).toISOString() : null,
         sixtyMinuteNetBpsFee20: latest.markout_60m_net_bps_fee20,
         sixtyMinuteNetBpsFee40: latest.markout_60m_net_bps_fee40
       }
