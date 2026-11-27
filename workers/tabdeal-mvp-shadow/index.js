@@ -886,7 +886,7 @@ const LOCAL_PAPER_MARKOUTS = Object.freeze([
   {minutes: 60, suffix: "60m"}
 ]);
 
-async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
+export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
   const pending = await env.DB.prepare(
     "SELECT symbol,strategy_version,candle_open_ms,entry_price,entry_spread_bps " +
     "FROM tabdeal_local_paper_signals WHERE paper_eligible=1 AND markout_60m_net_bps_fee10 IS NULL " +
@@ -900,7 +900,8 @@ async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
     const spread = Number(row.entry_spread_bps);
     for (const horizon of LOCAL_PAPER_MARKOUTS) {
       const closeRow = byTime.get(openMs + horizon.minutes * 60_000);
-      if (!closeRow) continue;
+      // A carry-forward no-trade minute is not an observed exit price.
+      if (!closeRow || closeRow.coverageStatus !== "complete" || closeRow.tradeCount < 1) continue;
       const base = calculateLocalPaperMarkout({
         entryPrice, exitClose: closeRow.close, entrySpreadBps: spread,
         feeBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS[0]
