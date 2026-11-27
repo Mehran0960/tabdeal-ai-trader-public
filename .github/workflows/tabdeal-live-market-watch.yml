@@ -51,7 +51,7 @@ jobs:
         with:
           ref: signal-history
           path: signal-history
-          token: \${{ github.token }}
+          token: ${{ github.token }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -64,10 +64,10 @@ jobs:
         id: settings
         shell: bash
         env:
-          EVENT_NAME: \${{ github.event_name }}
-          INPUT_MODE: \${{ inputs.mode || 'probe' }}
-          INPUT_DURATION: \${{ inputs.duration_minutes || '3' }}
-          INPUT_MAX_MARKETS: \${{ inputs.max_markets || '1000' }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_MODE: ${{ inputs.mode || 'probe' }}
+          INPUT_DURATION: ${{ inputs.duration_minutes || '3' }}
+          INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1000' }}
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
             echo "mode=continuous" >> "$GITHUB_OUTPUT"
@@ -82,13 +82,13 @@ jobs:
           echo "max_markets=$INPUT_MAX_MARKETS" >> "$GITHUB_OUTPUT"
       - name: Watch all selected public Spot books and evaluate provisional relative-value candidates
         env:
-          GITHUB_RUN_ID: \${{ github.run_id }}
-          GITHUB_RUN_ATTEMPT: \${{ github.run_attempt }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           node scripts/tabdeal-live-market-watch.mjs \
-            --mode "\${{ steps.settings.outputs.mode }}" \
-            --duration-minutes "\${{ steps.settings.outputs.duration }}" \
-            --max-markets "\${{ steps.settings.outputs.max_markets }}" \
+            --mode "${{ steps.settings.outputs.mode }}" \
+            --duration-minutes "${{ steps.settings.outputs.duration }}" \
+            --max-markets "${{ steps.settings.outputs.max_markets }}" \
             --batch-size 25 \
             --persist-every-minutes 60 \
             --history-repo signal-history \
@@ -98,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tabdeal-live-market-watch-\${{ github.run_id }}-\${{ github.run_attempt }}
+          name: tabdeal-live-market-watch-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/tabdeal-live-market-watch/latest.json
           if-no-files-found: warn
           retention-days: 7
