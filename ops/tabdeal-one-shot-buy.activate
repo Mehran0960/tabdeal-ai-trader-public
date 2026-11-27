@@ -8,3 +8,5 @@ No recurring trading; the permanent GitHub ref lock prevents a second execution.
 Retry activation after correcting exchangeInfo endpoint shape; earlier attempt stopped before any POST and did not claim the permanent lock.
 
 Automatic retry: prior attempts were stopped before POST because BTCUSDT does not allow quote-sized MARKET orders. The revised path uses a fee-reserved price-capped LIMIT order and will run only if live filters allow an order under the 1 USDT all-in ceiling.
+
+Automatic retry: the previous price-capped LIMIT attempt stopped before claiming the one-shot lock because the exchange's decimal filter precision exceeded the runner's conservative parser. Exact BigInt handling now supports high-precision tick/lot values; all existing market filters and the all-in 1 USDT cap remain enforced.
