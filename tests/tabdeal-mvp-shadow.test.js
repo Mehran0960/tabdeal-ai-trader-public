@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {evaluateTabdealMvpShadow} from "../workers/tabdeal-mvp-shadow/index.js";
+import {evaluateTabdealMvpShadow, buildShadowHealth} from "../workers/tabdeal-mvp-shadow/index.js";
 
 const interval = 4 * 60 * 60 * 1000;
 const nowMs = Date.parse("2026-11-27T08:00:00.000Z");
@@ -126,4 +126,32 @@ test("uses Kraken USD only as trend context and never as a Tabdeal USDT executio
   assert.equal(report.signalSource.executableTabdealQuote, false);
   assert.equal(report.localMarket.quoteUnit, "USDT");
   assert.equal(report.decision, "WAIT");
+});
+
+
+test("health endpoint marks a recent scan as fresh", () => {
+  const capturedAt = "2026-11-27T08:00:00.000Z";
+  const health = buildShadowHealth({capturedAt}, {
+    nowMs: Date.parse("2026-11-27T08:10:00.000Z")
+  });
+  assert.equal(health.status, "fresh");
+  assert.equal(health.fresh, true);
+  assert.equal(health.ageMs, 10 * 60 * 1000);
+  assert.equal(health.expectedCadenceMinutes, 15);
+});
+
+test("health endpoint warns when the last scan is stale", () => {
+  const health = buildShadowHealth({capturedAt: "2026-11-27T08:00:00.000Z"}, {
+    nowMs: Date.parse("2026-11-27T08:45:00.000Z")
+  });
+  assert.equal(health.status, "stale");
+  assert.equal(health.fresh, false);
+});
+
+test("health endpoint fails closed on invalid scan timestamp", () => {
+  const health = buildShadowHealth({capturedAt: "not-a-date"}, {
+    nowMs: Date.parse("2026-11-27T08:10:00.000Z")
+  });
+  assert.equal(health.status, "invalid_report_time");
+  assert.equal(health.fresh, false);
 });
