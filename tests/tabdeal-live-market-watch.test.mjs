@@ -21,6 +21,7 @@ const market=(symbol,base,quote="USDT",extra={})=>({
     {filterType:"MIN_NOTIONAL",minNotional:"1"},
     {filterType:"PRICE_FILTER",tickSize:"0.00000001"}
   ],
+  marketRulesReady:true,
   ...extra
 });
 const depth=(symbol="BTCUSDT",eventTime=NOW)=>({
