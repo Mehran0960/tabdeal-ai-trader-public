@@ -37,7 +37,7 @@ async function loadRollingState(filePath,nowMs){
     throw error;
   }
 }
-function persistStateToSignalHistory({state,historyRepo,stateRelativePath,nowMs}){
+async function persistStateToSignalHistory({state,historyRepo,stateRelativePath,nowMs}){
   if(!historyRepo)return {persisted:false,reason:"history_repo_not_configured"};
   const absolute=path.join(historyRepo,stateRelativePath);
   const relative=path.relative(historyRepo,absolute);
@@ -47,31 +47,26 @@ function persistStateToSignalHistory({state,historyRepo,stateRelativePath,nowMs}
     updatedAt:new Date(nowMs).toISOString(),
     barsBySymbol:state.barsBySymbol
   };
-  mkdirSync(path.dirname(absolute));
-  writeFileSync(absolute,JSON.stringify(persisted)+"\n");
   const git=(args)=>execFileSync("git",["-C",historyRepo,...args],{stdio:"pipe"});
-  const quiet=spawnSync("git",["-C",historyRepo,"diff","--cached","--quiet"],{stdio:"pipe"});
+  // Rebase before writing so other scheduled public-history collectors do not
+  // cause avoidable push races on the shared signal-history branch.
+  git(["pull","--rebase","origin","signal-history"]);
+  await mkdir(path.dirname(absolute),{recursive:true});
+  await writeFile(absolute,JSON.stringify(persisted)+"\n","utf8");
   git(["add",relative]);
   const staged=spawnSync("git",["-C",historyRepo,"diff","--cached","--quiet"],{stdio:"pipe"});
   if(staged.status===0)return {persisted:false,reason:"state_unchanged"};
   if(staged.status!==1)throw new Error("live_watch_git_diff_failed");
-  git(["pull","--rebase","origin","signal-history"]);
+  git(["config","user.name","github-actions[bot]"]);
+  git(["config","user.email","41898282+github-actions[bot]@users.noreply.github.com"]);
   git(["commit","-m","data: checkpoint continuous Tabdeal live market watch"]);
   try{
     git(["push","origin","HEAD:signal-history"]);
-  }catch(error){
-    // Concurrent history collectors may push to the same append-only branch.
-    // Rebase once; do not retry an uncertain market action (this is data only).
+  }catch{
     git(["pull","--rebase","origin","signal-history"]);
     git(["push","origin","HEAD:signal-history"]);
   }
   return {persisted:true,reason:"rolling_minute_history_checkpointed",relativePath:relative};
-}
-function mkdirSync(directory){
-  execFileSync("mkdir",["-p",directory],{stdio:"pipe"});
-}
-function writeFileSync(filePath,content){
-  execFileSync("bash",["-lc","cat > "+JSON.stringify(filePath)+" <<'__TABDEAL_STATE__'\n"+content+"__TABDEAL_STATE__"],{stdio:"pipe"});
 }
 
 async function main(){
@@ -216,6 +211,7 @@ async function main(){
       clearTimeout(connectionTimer);
       if(!stopping&&ws===activeSocket){
         activeSocket=null;
+        try{ws.close();}catch{}
         scheduleReconnect(reason);
       }
     };
@@ -236,7 +232,7 @@ async function main(){
   async function persistCheckpoint(){
     if(!historyRepo)return;
     try{
-      const result=persistStateToSignalHistory({
+      const result=await persistStateToSignalHistory({
         state,historyRepo,stateRelativePath,nowMs:Date.now()
       });
       persistResults.push({at:new Date().toISOString(),...result});
