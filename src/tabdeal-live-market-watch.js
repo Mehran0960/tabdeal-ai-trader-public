@@ -273,17 +273,23 @@ export function updateTabdealLiveMinuteBar(state,message) {
 
 function alignedPriceRows(symbol,market,barsBySymbol,btcUsdtBars) {
   const direct=barsBySymbol[symbol]||[];
-  if(market.quoteAsset==="USDT"){
-    return direct.map(row=>({time:row.time,price:row.close}));
+  if(market.quoteAsset==="USDT"||market.quoteAsset==="IRT"){
+    return {
+      comparisonQuoteAsset:market.quoteAsset,
+      priceRows:direct.map(row=>({time:row.time,price:row.close}))
+    };
   }
   if(market.quoteAsset==="BTC"){
     const btcByTime=new Map((btcUsdtBars||[]).map(row=>[row.time,row.close]));
-    return direct.flatMap(row=>{
-      const btc=btcByTime.get(row.time);
-      return positive(btc)?[{time:row.time,price:row.close*btc}]:[];
-    });
+    return {
+      comparisonQuoteAsset:"USDT",
+      priceRows:direct.flatMap(row=>{
+        const btc=btcByTime.get(row.time);
+        return positive(btc)?[{time:row.time,price:row.close*btc}]:[];
+      })
+    };
   }
-  return [];
+  return {comparisonQuoteAsset:null,priceRows:[]};
 }
 
 export function evaluateTabdealRelativeWatch({
@@ -302,29 +308,32 @@ export function evaluateTabdealRelativeWatch({
   for(const market of markets){
     const symbol=String(market.symbol).toUpperCase();
     const base=String(market.baseAsset).toUpperCase();
-    if(base==="USDT")continue;
+    if(base==="USDT"||TABDEAL_LIVE_WATCH_POLICY.excludedBaseAssets.includes(base))continue;
     const bars=state.barsBySymbol?.[symbol]||[];
     if(bars.length<TABDEAL_LIVE_WATCH_POLICY.minimumBarsForCandidate)continue;
-    let selected=assets.get(base);
-    // Prefer a directly USDT-quoted market; use BTC-quoted markets only where
-    // no direct USDT pair exists and BTCUSDT has aligned minute candles.
-    if(!selected||market.quoteAsset==="USDT"&&selected.quoteAsset!=="USDT"){
-      const priceRows=alignedPriceRows(symbol,market,state.barsBySymbol,btcBars);
-      if(priceRows.length<TABDEAL_LIVE_WATCH_POLICY.minimumBarsForCandidate){
-        if(!selected)assets.set(base,{available:false,reason:"btc_usdt_alignment_missing",symbol,quoteAsset:market.quoteAsset});
-        continue;
-      }
+    const aligned=alignedPriceRows(symbol,market,state.barsBySymbol,btcBars);
+    const comparisonQuoteAsset=aligned.comparisonQuoteAsset;
+    const priceRows=aligned.priceRows;
+    if(!comparisonQuoteAsset||priceRows.length<TABDEAL_LIVE_WATCH_POLICY.minimumBarsForCandidate)continue;
+    const key=comparisonQuoteAsset+":"+base;
+    const selected=assets.get(key);
+    // Compare each base asset only inside the same quote-unit group. Prefer
+    // direct USDT over BTC-converted for a USDT-equivalent comparison.
+    if(!selected||(comparisonQuoteAsset==="USDT"&&market.quoteAsset==="USDT"&&selected.quoteAsset==="BTC")){
       const book=currentBooks[symbol];
-      assets.set(base,{
+      assets.set(key,{
         available:true,asset:base,symbol,quoteAsset:market.quoteAsset,
-        priceRows,book,marketRulesReady:market.marketRulesReady===true,
-        latestPriceUsdt:priceRows.at(-1)?.price??null
+        comparisonQuoteAsset,priceRows,book,
+        marketRulesReady:market.marketRulesReady===true,
+        quoteUnitVerified:market.quoteUnitVerified===true,
+        minNotional:Number(market.minNotional),
+        latestPrice:priceRows.at(-1)?.price??null
       });
     }
   }
+
   const latestRows=[];
   for(const item of assets.values()){
-    if(!item.available)continue;
     const lastIndex=item.priceRows.length-1;
     const last=item.priceRows[lastIndex],at15=item.priceRows[lastIndex-TABDEAL_LIVE_WATCH_POLICY.relativeLookbackMinutes],
       at5=item.priceRows[lastIndex-TABDEAL_LIVE_WATCH_POLICY.reversalLookbackMinutes],at1=item.priceRows[lastIndex-1];
@@ -340,100 +349,139 @@ export function evaluateTabdealRelativeWatch({
     if(!latestBook||bookAge<0||bookAge>TABDEAL_LIVE_WATCH_POLICY.maximumBookAgeMs||
        latestBarAge< -TABDEAL_LIVE_WATCH_POLICY.barIntervalMs||
        latestBarAge>TABDEAL_LIVE_WATCH_POLICY.maximumLatestBarAgeMs||
-       item.marketRulesReady!==true)continue;
-    const btcBook=currentBooks.BTCUSDT;
-    const btcBookAge=nowMs-Number(btcBook?.receivedAtMs);
-    let depthMultiplier=item.quoteAsset==="BTC"?Number(btcBook?.midPrice):1;
-    if(item.quoteAsset==="BTC"&&(!btcMarket||!positive(depthMultiplier)||
-       btcBookAge<0||btcBookAge>TABDEAL_LIVE_WATCH_POLICY.maximumBookAgeMs))continue;
+       item.marketRulesReady!==true||!positive(item.minNotional))continue;
+    let quoteScale=1;
+    if(item.quoteAsset==="BTC"){
+      const btcBook=currentBooks.BTCUSDT;
+      const btcBookAge=nowMs-Number(btcBook?.receivedAtMs);
+      quoteScale=Number(btcBook?.midPrice);
+      if(!btcMarket||!positive(quoteScale)||btcBookAge<0||
+         btcBookAge>TABDEAL_LIVE_WATCH_POLICY.maximumBookAgeMs)continue;
+    }
     const spreadBps=Number(latestBook.spreadBps);
-    const bidDepth=Number(latestBook.bidDepthTop5Quote)*depthMultiplier;
-    const askDepth=Number(latestBook.askDepthTop5Quote)*depthMultiplier;
+    const bidDepth=Number(latestBook.bidDepthTop5Quote)*quoteScale;
+    const askDepth=Number(latestBook.askDepthTop5Quote)*quoteScale;
+    const minNotional=item.minNotional*quoteScale;
+    const minimumDepth=item.comparisonQuoteAsset==="IRT"
+      ?minNotional*10
+      :TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt;
     const oneMinuteReturnBps=(last.price/at1.price-1)*10_000;
     const fiveMinuteReturnBps=(last.price/at5.price-1)*10_000;
     const fifteenMinuteReturnBps=(last.price/at15.price-1)*10_000;
-    if(![spreadBps,bidDepth,askDepth,oneMinuteReturnBps,fiveMinuteReturnBps,fifteenMinuteReturnBps].every(Number.isFinite))continue;
+    if(![spreadBps,bidDepth,askDepth,minNotional,minimumDepth,
+      oneMinuteReturnBps,fiveMinuteReturnBps,fifteenMinuteReturnBps].every(Number.isFinite))continue;
     latestRows.push({
       asset:item.asset,symbol:item.symbol,quoteAsset:item.quoteAsset,
-      latestPriceUsdt:last.price,bookAgeMs:bookAge,latestBarAgeMs:latestBarAge,
+      comparisonQuoteAsset:item.comparisonQuoteAsset,
+      quoteUnitVerified:item.quoteUnitVerified,
+      latestPrice:last.price,bookAgeMs:bookAge,latestBarAgeMs:latestBarAge,
       marketRulesReady:item.marketRulesReady,spreadBps,
-      bidDepthTop5Usdt:bidDepth,askDepthTop5Usdt:askDepth,
+      bidDepthTop5Quote:bidDepth,askDepthTop5Quote:askDepth,
+      minimumDepthTop5Quote:minimumDepth,
       oneMinuteReturnBps,fiveMinuteReturnBps,fifteenMinuteReturnBps
     });
   }
-  if(latestRows.length<5){
-    return {status:"warming_up",availableAssets:latestRows.length,
-      requiredAssets:5,assets:latestRows.slice(0,10),candidate:null,
-      tradeAuthorized:false,reason:"insufficient_fresh_aligned_minute_history"};
-  }
-  const crossMedian=median(latestRows.map(row=>row.fifteenMinuteReturnBps));
-  const crossMad=mad(latestRows.map(row=>row.fifteenMinuteReturnBps),crossMedian);
-  const robustScale=Math.max(1,1.4826*(crossMad||0));
+
+  const grouped=new Map();
   for(const row of latestRows){
-    row.relativeUnderperformanceBps=row.fifteenMinuteReturnBps-crossMedian;
-    row.relativeZScore=row.relativeUnderperformanceBps/robustScale;
+    const group=row.comparisonQuoteAsset;
+    if(!grouped.has(group))grouped.set(group,[]);
+    grouped.get(group).push(row);
   }
-  const liquidRows=latestRows.filter(row=>
-    row.spreadBps<=TABDEAL_LIVE_WATCH_POLICY.maximumSpreadBps&&
-    row.bidDepthTop5Usdt>=TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt&&
-    row.askDepthTop5Usdt>=TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt
-  );
-  if(liquidRows.length<2){
-    return {status:"no_liquid_source_and_target_pair",availableAssets:latestRows.length,
-      liquidAssets:liquidRows.length,crossSectionMedianReturnBps:crossMedian,
-      assets:latestRows.sort((a,b)=>a.relativeUnderperformanceBps-b.relativeUnderperformanceBps).slice(0,10),
-      candidate:null,tradeAuthorized:false,reason:"two_liquid_markets_required"};
+  const groupResults=[];
+  const candidates=[];
+  const warmingGroups=[];
+  for(const [quoteUnit,rows] of grouped){
+    if(rows.length<5){
+      warmingGroups.push({quoteUnit,availableAssets:rows.length,requiredAssets:5,
+        status:"warming_up",reason:"insufficient_fresh_aligned_minute_history"});
+      continue;
+    }
+    const crossMedian=median(rows.map(row=>row.fifteenMinuteReturnBps));
+    const crossMad=mad(rows.map(row=>row.fifteenMinuteReturnBps),crossMedian);
+    const robustScale=Math.max(1,1.4826*(crossMad||0));
+    for(const row of rows){
+      row.relativeUnderperformanceBps=row.fifteenMinuteReturnBps-crossMedian;
+      row.relativeZScore=row.relativeUnderperformanceBps/robustScale;
+    }
+    const liquidRows=rows.filter(row=>
+      row.spreadBps<=TABDEAL_LIVE_WATCH_POLICY.maximumSpreadBps&&
+      row.bidDepthTop5Quote>=row.minimumDepthTop5Quote&&
+      row.askDepthTop5Quote>=row.minimumDepthTop5Quote
+    );
+    if(liquidRows.length<2){
+      groupResults.push({quoteUnit,availableAssets:rows.length,liquidAssets:liquidRows.length,
+        crossSectionMedianReturnBps:crossMedian,candidate:null,
+        status:"no_liquid_source_and_target_pair"});
+      continue;
+    }
+    const strongest=[...liquidRows].sort((a,b)=>b.fifteenMinuteReturnBps-a.fifteenMinuteReturnBps)[0];
+    const targets=liquidRows.filter(row=>
+      row.asset!==strongest.asset&&
+      row.relativeUnderperformanceBps<=-TABDEAL_LIVE_WATCH_POLICY.minimumRelativeUnderperformanceBps&&
+      row.relativeZScore<=-TABDEAL_LIVE_WATCH_POLICY.minimumRelativeZScore&&
+      row.oneMinuteReturnBps>0&&row.fiveMinuteReturnBps>0
+    ).sort((a,b)=>a.relativeUnderperformanceBps-b.relativeUnderperformanceBps);
+    const target=targets[0]||null;
+    const groupSummary={
+      quoteUnit,availableAssets:rows.length,liquidAssets:liquidRows.length,
+      crossSectionMedianReturnBps:crossMedian,
+      strongestIllustrativeSource:strongest.asset,
+      status:target?"provisional_relative_value_watch_candidate":"no_provisional_relative_value_candidate",
+      candidate:null
+    };
+    if(target){
+      const costBps=2*(Number(feeBpsPerOrder)+Number(slippageBpsPerOrder))+
+        Number(strongest.spreadBps)/2+Number(target.spreadBps)/2;
+      const candidate={
+        sourceAsset:strongest.asset,sourceSymbol:strongest.symbol,
+        targetAsset:target.asset,targetSymbol:target.symbol,
+        quoteUnit,quoteUnitVerified:strongest.quoteUnitVerified&&target.quoteUnitVerified,
+        relativeUnderperformanceBps:target.relativeUnderperformanceBps,
+        relativeZScore:target.relativeZScore,
+        oneMinuteReturnBps:target.oneMinuteReturnBps,
+        fiveMinuteReturnBps:target.fiveMinuteReturnBps,
+        fifteenMinuteReturnBps:target.fifteenMinuteReturnBps,
+        estimatedSwitchFrictionBps:costBps,
+        recentReturnGapBps:Number(strongest.fifteenMinuteReturnBps)-Number(target.fifteenMinuteReturnBps),
+        recentRelativeGapIsHistoricalOnly:true,
+        spreadBps:{source:strongest.spreadBps,target:target.spreadBps},
+        topFiveDepth:{
+          quoteUnit,
+          sourceBid:strongest.bidDepthTop5Quote,sourceAsk:strongest.askDepthTop5Quote,
+          targetBid:target.bidDepthTop5Quote,targetAsk:target.askDepthTop5Quote,
+          minimumPerSide:Math.max(strongest.minimumDepthTop5Quote,target.minimumDepthTop5Quote)
+        }
+      };
+      groupSummary.candidate=candidate;
+      candidates.push(candidate);
+    }
+    groupResults.push(groupSummary);
   }
-  const strongest=[...liquidRows].sort((a,b)=>b.fifteenMinuteReturnBps-a.fifteenMinuteReturnBps)[0];
-  const candidates=liquidRows.filter(row=>
-    row.asset!==strongest.asset&&
-    row.relativeUnderperformanceBps<=-TABDEAL_LIVE_WATCH_POLICY.minimumRelativeUnderperformanceBps&&
-    row.relativeZScore<=-TABDEAL_LIVE_WATCH_POLICY.minimumRelativeZScore&&
-    row.oneMinuteReturnBps>0&&row.fiveMinuteReturnBps>0&&
-    row.spreadBps<=TABDEAL_LIVE_WATCH_POLICY.maximumSpreadBps&&
-    row.bidDepthTop5Usdt>=TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt&&
-    row.askDepthTop5Usdt>=TABDEAL_LIVE_WATCH_POLICY.minimumTopFiveDepthUsdt
-  ).sort((a,b)=>a.relativeUnderperformanceBps-b.relativeUnderperformanceBps);
-  const target=candidates[0]||null;
-  if(!target){
-    return {status:"no_provisional_relative_value_candidate",availableAssets:latestRows.length,
-      crossSectionMedianReturnBps:crossMedian,assets:latestRows.sort((a,b)=>a.relativeUnderperformanceBps-b.relativeUnderperformanceBps).slice(0,10),
-      strongestIllustrativeSource:strongest.asset,candidate:null,
-      feeAssumptionBpsPerOrder:Number(feeBpsPerOrder),
-      slippageAssumptionBpsPerOrder:Number(slippageBpsPerOrder),
-      tradeAuthorized:false,reason:"no_laggard_with_reversal_and_liquidity_confirmation"};
-  }
-  const costBps=2*(Number(feeBpsPerOrder)+Number(slippageBpsPerOrder))+
-    Number(strongest.spreadBps)/2+Number(target.spreadBps)/2;
-  const recentReturnGapBps=Number(strongest.fifteenMinuteReturnBps)-Number(target.fifteenMinuteReturnBps);
+  candidates.sort((a,b)=>a.relativeUnderperformanceBps-b.relativeUnderperformanceBps);
+  const primary=candidates[0]||null;
+  const anyWarm=groupResults.length>0;
   return {
-    status:"provisional_relative_value_watch_candidate",
+    status:primary?"provisional_relative_value_watch_candidate":
+      anyWarm?"no_provisional_relative_value_candidate":"warming_up",
     availableAssets:latestRows.length,
-    crossSectionMedianReturnBps:crossMedian,
-    strongestIllustrativeSource:strongest.asset,
-    candidate:{
-      sourceAsset:strongest.asset,sourceSymbol:strongest.symbol,
-      targetAsset:target.asset,targetSymbol:target.symbol,
-      relativeUnderperformanceBps:target.relativeUnderperformanceBps,
-      relativeZScore:target.relativeZScore,
-      oneMinuteReturnBps:target.oneMinuteReturnBps,
-      fiveMinuteReturnBps:target.fiveMinuteReturnBps,
-      fifteenMinuteReturnBps:target.fifteenMinuteReturnBps,
-      estimatedSwitchFrictionBps:costBps,
-      recentReturnGapBps,
-      recentRelativeGapIsHistoricalOnly:true,
-      spreadBps:{source:strongest.spreadBps,target:target.spreadBps},
-      topFiveDepthUsdt:{
-        sourceBid:strongest.bidDepthTop5Usdt,sourceAsk:strongest.askDepthTop5Usdt,
-        targetBid:target.bidDepthTop5Usdt,targetAsk:target.askDepthTop5Usdt
-      }
-    },
+    requiredAssetsPerQuoteGroup:5,
+    crossSectionMedianReturnBps:groupResults.length===1?groupResults[0].crossSectionMedianReturnBps:null,
+    strongestIllustrativeSource:primary?.sourceAsset??null,
+    candidate:primary,
+    candidates,
+    quoteGroups:groupResults.concat(warmingGroups),
+    assets:latestRows.sort((a,b)=>
+      a.comparisonQuoteAsset.localeCompare(b.comparisonQuoteAsset)||
+      a.relativeUnderperformanceBps-b.relativeUnderperformanceBps
+    ).slice(0,20),
     feeAssumptionBpsPerOrder:Number(feeBpsPerOrder),
     slippageAssumptionBpsPerOrder:Number(slippageBpsPerOrder),
-    strongestAndTarget: [strongest,...candidates.slice(0,5)],
     tradeAuthorized:false,
     statusLimitations:[
       "This is a watch candidate, not an expected-profit forecast.",
+      "Relative performance is compared only within a common quote-asset group; IRT is never joined to USDT or BTC prices.",
+      "IRT quote units and account settlement denomination are not verified; IRT candidates are observation-only.",
       "The Spot depth stream snapshot/delta semantics have not been independently confirmed by Tabdeal.",
       "Fees and slippage are provisional assumptions, not account-specific verified costs.",
       "A live switch requires a separate two-leg execution preflight and order reconciliation."
