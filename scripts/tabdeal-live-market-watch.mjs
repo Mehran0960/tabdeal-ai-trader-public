@@ -169,6 +169,11 @@ async function main(){
     return value!==null&&typeof value==="object"&&!Array.isArray(value);
   }
   async function sendSubscriptions(ws){
+    // Report the coverage of the latest connection, not a cumulative count
+    // that can exceed the universe after reconnects.
+    stats.subscriptionAcceptedSymbols=0;
+    stats.subscriptionRejectedSymbols=0;
+    stats.subscriptionSetupIncomplete=false;
     let nextId=1000;
     const queue=[...batches];
     let sent=0,accepted=0,rejectedSymbols=[];
@@ -220,8 +225,8 @@ async function main(){
       stats.subscriptionSetupIncomplete=true;
       for(const batch of queue)rejectedSymbols.push(...batch.symbols);
     }
-    stats.subscriptionAcceptedSymbols+=accepted;
-    stats.subscriptionRejectedSymbols+=rejectedSymbols.length;
+    stats.subscriptionAcceptedSymbols=accepted;
+    stats.subscriptionRejectedSymbols=rejectedSymbols.length;
     subscriptionErrors.push({
       code:"subscription_batch_summary",
       sentBatches:sent,acceptedSymbols:accepted,
