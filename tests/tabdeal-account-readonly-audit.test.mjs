@@ -127,12 +127,12 @@ test("does not equate an unclassified HTTP 404 with an order-not-found API respo
       calls++;
       if(calls===1) return {ok:true,status:200,text:async()=>JSON.stringify({accountType:"SPOT",canTrade:true})};
       if(calls===2) return {ok:true,status:200,text:async()=>JSON.stringify([])};
-      return {ok:false,status:404,text:async()=>JSON.stringify({msg:"unclassified response"})};
+      return {ok:false,status:404,text:async()=>JSON.stringify({code:1204,msg:"unclassified response"})};
     }
   });
   assert.equal(report.status,"ACCOUNT_AND_OPEN_ORDERS_OK_ORDER_LOOKUP_FAILED");
   assert.equal(report.orderLookupRead.ok,false);
-  assert.equal(report.orderLookupRead.result,"unclassified_order_lookup_404");
+  assert.equal(report.orderLookupRead.result,"unclassified_order_lookup_404");\n  assert.equal(report.orderLookupRead.apiErrorCode,1204);
 });
 
 test("preserves endpoint failures without logging provider message bodies",async()=>{

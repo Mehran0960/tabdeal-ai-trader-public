@@ -5,13 +5,13 @@ Repository: `Mehran0960/tabdeal-ai-trader-public`
 
 ## Verified with the configured API key
 
-A read-only GitHub Actions audit on the public repository completed successfully:
+Read-only checks were run on the public repository. The account and open-order endpoints were confirmed; the synthetic order-lookup test remains unresolved:
 
 - Signed `GET /account`: HTTP 200; account type `SPOT`; `canTrade=true`. The response can contain balance fields; the audit extracts only `accountType` and `canTrade`. Balance values were not extracted into the report, persisted, or logged.
 - Signed `GET /openOrders?symbol=PAXGUSDT`: HTTP 200; zero open orders at the time of the check. The audit records only the count; no order details are retained or logged.
-- Signed `GET /order` using the synthetic `origClientOrderId` `audit-probe-no-order-20261127`: the first audit received HTTP 404. The audit was hardened to classify this as “not found” only when the structured API error code is `-2013`; a bare/unclassified 404 is no longer treated as success.
+- Signed `GET /order` using the synthetic `origClientOrderId` `audit-probe-no-order-20261127`: HTTP 404 with API error code `1204`. We have not found an authoritative Tabdeal definition for this code. It is explicitly classified as **unresolved**, not as order-not-found and not as proof of a successful order lookup. The core account/open-order checks remain successful; the workflow reports this unresolved lookup in its output rather than hiding it.
 - All three calls use the `TRADE` authentication class and HMAC-SHA256 signing.
-- No `POST`, `DELETE`, cancellation, withdrawal, transfer, or order creation was performed.
+- No `POST`, `DELETE`, cancellation, withdrawal, transfer, or order creation was performed. Balance values and order details were not extracted into the report, stored, or logged.
 
 The official Tabdeal Python SDK marks `account()`, `get_open_orders()`, and `get_order()` as `SecurityTypes.TRADE`. It also marks `new_order()` as `SecurityTypes.TRADE`; the Spot SDK submits `POST /order`. This confirms the documented request class, not that this specific key's POST permission has been accepted.
 
