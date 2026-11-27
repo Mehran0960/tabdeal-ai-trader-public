@@ -244,11 +244,18 @@ test("forward paper markouts anchor to actual entry time and skip no-trade exits
     prepare(sql){
       const statement={
         bind(...params){writes.push({sql,params});return statement;},
-        async all(){return {results:[{
-          symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
-          candle_open_ms:base,entry_price:100,entry_spread_bps:10,
-          entry_observed_at_ms:base+90_000
-        }]}};
+        async all() {
+          return {
+            results: [{
+              symbol: "BTCUSDT",
+              strategy_version: "ema9-21-50-rsi14-macd-5m-v1",
+              candle_open_ms: base,
+              entry_price: 100,
+              entry_spread_bps: 10,
+              entry_observed_at_ms: base + 90_000
+            }]
+          };
+        }
       };
       return statement;
     },
@@ -278,11 +285,18 @@ test("forward paper markout stays unresolved when no real trade occurs within th
     prepare(sql){
       const statement={
         bind(...params){writes.push({sql,params});return statement;},
-        async all(){return {results:[{
-          symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
-          candle_open_ms:base,entry_price:100,entry_spread_bps:10,
-          entry_observed_at_ms:base+90_000
-        }]}};
+        async all() {
+          return {
+            results: [{
+              symbol: "BTCUSDT",
+              strategy_version: "ema9-21-50-rsi14-macd-5m-v1",
+              candle_open_ms: base,
+              entry_price: 100,
+              entry_spread_bps: 10,
+              entry_observed_at_ms: base + 90_000
+            }]
+          };
+        }
       };
       return statement;
     },
