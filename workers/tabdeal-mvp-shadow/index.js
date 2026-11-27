@@ -400,8 +400,9 @@ export function assessTabdealTradePageCoverage(rows, state, limit = TRADE_STREAM
   if (latestId < priorId) return {status: "trade_id_rewind", newTrades: []};
   const lastSuccessfulPollAtMs = Number(state.last_successful_poll_at_ms);
   if (rows.length === limit &&
-      Number.isSafeInteger(lastSuccessfulPollAtMs) &&
-      rows[0].timeMs >= lastSuccessfulPollAtMs) {
+      (BigInt(rows[0].id) > priorId ||
+       (Number.isSafeInteger(lastSuccessfulPollAtMs) &&
+        rows[0].timeMs >= lastSuccessfulPollAtMs))) {
     return {status: "possible_truncation", newTrades: []};
   }
   const newTrades = rows.filter(row => BigInt(row.id) > priorId);
