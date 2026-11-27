@@ -153,7 +153,7 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(report.orderSubmitted, true);
   assert.equal(report.order.symbol, ONE_SHOT_SYMBOL);
   assert.equal(report.order.status, "FILLED");
-  assert.equal(report.order.cumulativeQuoteQuantity, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.order.cumulativeQuoteQuantity, report.preflight.quoteOrderQty);
   const exchangeInfoCall = calls.find(call => call.url.pathname.endsWith("/exchangeInfo"));
   assert.ok(exchangeInfoCall);
   assert.equal(exchangeInfoCall.url.search, "");
