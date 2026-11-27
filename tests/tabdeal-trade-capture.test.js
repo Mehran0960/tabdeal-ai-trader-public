@@ -47,6 +47,20 @@ test("detects a capped recent-trades page that cannot cover the previous poll in
   assert.equal(result.newTrades.length, 0);
 });
 
+test("rejects a capped page without cursor overlap even when its oldest timestamp predates the poll", () => {
+  const state = {
+    last_trade_id: "100",
+    last_trade_time_ms: now - 120_000,
+    last_successful_poll_at_ms: now - 30_000
+  };
+  const rows = normalized(Array.from({length: 1000}, (_, i) =>
+    trade(i + 200, now - 100_000 + i, "60000")
+  ));
+  const result = assessTabdealTradePageCoverage(rows, state);
+  assert.equal(result.status, "possible_truncation");
+  assert.equal(result.newTrades.length, 0);
+});
+
 test("accepts an overlapping capped page and returns only unseen trades", () => {
   const state = {
     last_trade_id: "1000",
