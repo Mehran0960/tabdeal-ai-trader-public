@@ -1,4 +1,4 @@
-const BINANCE_KLINES = "https://api.binance.com/api/v3/klines";
+const BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines";
 const TABDEAL_API = "https://api1.tabdeal.org/r/api/v1";
 const SYMBOL = "BTCUSDT";
 const INTERVAL = "4h";
@@ -241,19 +241,23 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
   const startedAt = now();
   let binanceKlines = null, tabdealExchangeInfo = null, tabdealDepth = null;
   let bookRequestDurationMs = null;
+  const sourceErrors = {};
   const requests = [
     getJson(BINANCE_KLINES + "?symbol=" + SYMBOL + "&interval=" + INTERVAL + "&limit=" + LOOKBACK, 10_000)
       .then(value => { binanceKlines = value; })
-      .catch(() => {}),
+      .catch(error => { sourceErrors.binance = errorCode(error, "binance_fetch_failed"); }),
     getJson(TABDEAL_API + "/exchangeInfo", 8_000)
       .then(value => { tabdealExchangeInfo = value; })
-      .catch(() => {})
+      .catch(error => { sourceErrors.tabdealExchangeInfo = errorCode(error, "tabdeal_exchange_info_fetch_failed"); })
   ];
   const bookStarted = now();
   requests.push(
     getJson(TABDEAL_API + "/depth?symbol=" + SYMBOL + "&limit=20", 8_000)
       .then(value => { tabdealDepth = value; bookRequestDurationMs = Math.max(0, now() - bookStarted); })
-      .catch(() => { bookRequestDurationMs = Math.max(0, now() - bookStarted); })
+      .catch(error => {
+        sourceErrors.tabdealDepth = errorCode(error, "tabdeal_depth_fetch_failed");
+        bookRequestDurationMs = Math.max(0, now() - bookStarted);
+      })
   );
   await Promise.all(requests);
   const report = evaluateTabdealMvpShadow({
@@ -261,6 +265,7 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
     bookRequestDurationMs: bookRequestDurationMs ?? -1
   });
   report.scanDurationMs = Math.max(0, now() - startedAt);
+  report.sourceErrors = sourceErrors;
   report.scanId = crypto.randomUUID();
   await env.DB.prepare(
     "INSERT INTO shadow_scans (scan_id,captured_at,source_status,signal_state,execution_gate,report_json) VALUES (?,?,?,?,?,?)"
