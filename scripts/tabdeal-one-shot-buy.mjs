@@ -94,7 +94,10 @@ function unitsDecimal(value, precision) {
   const fraction = (value % base).toString().padStart(precision, "0");
   return precision ? whole.toString() + "." + fraction : whole.toString();
 }
-function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
+function limitBuyForOneUsdt({
+  symbolInfo, asks, bestAskText, quoteBudget, maxQuoteBudget,
+  maxTotalDebitQuote, commissionBps
+}) {
   if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("LIMIT")) {
     throw new Error("limit_order_type_not_allowed");
   }
@@ -104,9 +107,10 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
   const stepSize = positive(lot?.stepSize);
   const priceFilter = filterOf(symbolInfo, "PRICE_FILTER");
   const tickSize = positive(priceFilter?.tickSize);
-  const minPrice = positive(priceFilter?.minPrice);
-  const maxPrice = positive(priceFilter?.maxPrice);
   if (!minQty || !stepSize || !tickSize) throw new Error("limit_lot_or_price_filter_missing");
+  if (!Number.isSafeInteger(commissionBps) || commissionBps < 0 || commissionBps > 10_000) {
+    throw new Error("account_spot_commission_rate_unavailable");
+  }
 
   const pricePrecision = Math.max(
     precisionOf(bestAskText),
@@ -137,51 +141,67 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
     throw new Error("limit_price_outside_price_filter");
   }
 
+  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
+  if (minNotionalFilter?.minNotional === undefined) throw new Error("limit_min_notional_filter_missing");
+  const minNotional = positive(minNotionalFilter.minNotional);
+  const minNotionalUnits = decimalUnits(minNotionalFilter.minNotional, 8);
+  const requestedQuoteUnits = decimalUnits(quoteBudget, 8);
+  const targetQuoteUnits = requestedQuoteUnits > minNotionalUnits ? requestedQuoteUnits : minNotionalUnits;
+
   const stepUnits = decimalUnits(lot.stepSize, quantityPrecision);
-  const capUnits = decimalUnits(quoteBudget, 8);
   const scale = 10n ** BigInt(pricePrecision + quantityPrecision);
-  const maxQuantityUnits = (capUnits * scale) / (10n ** 8n * limitPriceUnits);
-  const quantityUnits = (maxQuantityUnits / stepUnits) * stepUnits;
+  const quoteScale = 10n ** 8n;
+  const targetQuantityNumerator = targetQuoteUnits * scale;
+  const targetQuantityDenominator = quoteScale * limitPriceUnits;
+  const minimumRequiredQuantityUnits =
+    (targetQuantityNumerator + targetQuantityDenominator - 1n) / targetQuantityDenominator;
+  // Match the exchange UI: round the base quantity UP to the next valid LOT_SIZE step
+  // so the configured quote amount/minimum order value is actually reached.
+  const quantityUnits =
+    ((minimumRequiredQuantityUnits + stepUnits - 1n) / stepUnits) * stepUnits;
   const minimumQuantityUnits = decimalUnits(lot.minQty, quantityPrecision);
   const maximumQuantityUnits = lot.maxQty ? decimalUnits(lot.maxQty, quantityPrecision) : null;
   if (quantityUnits < minimumQuantityUnits ||
       (maximumQuantityUnits !== null && quantityUnits > maximumQuantityUnits)) {
-    throw new Error("one_usdt_limit_quantity_outside_lot_filter");
+    throw new Error("rounded_quantity_outside_lot_filter");
   }
-  const quantity = unitsDecimal(quantityUnits, quantityPrecision);
-  const notionalNumerator = limitPriceUnits * quantityUnits * (10n ** 8n);
-  const notionalDenominator = scale;
-  const exactNotionalQuoteUnits = (notionalNumerator + notionalDenominator / 2n) / notionalDenominator;
-  const exceedsQuoteBudget = notionalNumerator > capUnits * scale;
-  if (quantityUnits <= 0n || exceedsQuoteBudget) {
-    throw new Error("limit_notional_exceeds_one_usdt");
-  }
-  const notional = Number(unitsDecimal(exactNotionalQuoteUnits, 8));
-  if (!Number.isFinite(notional) || notional <= 0) throw new Error("limit_notional_invalid");
 
-  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
-  const minNotional = positive(minNotionalFilter?.minNotional);
-  const minNotionalUnits = minNotionalFilter?.minNotional
-    ? decimalUnits(minNotionalFilter.minNotional, 8) : null;
-  if (!minNotional || minNotionalUnits === null ||
-      exactNotionalQuoteUnits < minNotionalUnits ||
-      minNotional > Number(quoteBudget)) {
-    const error = new Error("limit_notional_below_venue_minimum");
+  const notionalNumerator = limitPriceUnits * quantityUnits * quoteScale;
+  const notionalDenominator = scale;
+  const maxQuoteUnits = decimalUnits(maxQuoteBudget, 8);
+  if (notionalNumerator > maxQuoteUnits * notionalDenominator) {
+    const error = new Error("rounded_quantity_exceeds_available_balance_after_fees");
     error.diagnostics = {
       symbol: symbolInfo.symbol,
-      quoteBudget,
-      limitPrice: limitPrice,
-      baseQuantity: quantity,
-      calculatedQuoteNotional: unitsDecimal(exactNotionalQuoteUnits, 8),
-      minimumQuoteNotional: minNotionalFilter?.minNotional ?? null,
+      requestedQuoteAmount: quoteBudget,
+      feeAdjustedQuoteBudget: maxQuoteBudget,
+      maxTotalDebitQuote,
+      limitPrice,
+      baseQuantity: unitsDecimal(quantityUnits, quantityPrecision),
+      calculatedQuoteNotional: unitsDecimal((notionalNumerator + notionalDenominator / 2n) / notionalDenominator, 8),
+      minimumQuoteNotional: minNotionalFilter.minNotional,
       priceTickSize: priceFilter.tickSize,
       quantityStepSize: lot.stepSize,
-      pricePrecision,
-      quantityPrecision
+      commissionBps
     };
     throw error;
   }
 
+  const feeDenominator = notionalDenominator * 10_000n;
+  const estimatedTotalDebitUnits =
+    (notionalNumerator * BigInt(10_000 + commissionBps) + feeDenominator - 1n) / feeDenominator;
+  const estimatedTotalDebit = unitsDecimal(estimatedTotalDebitUnits, 8);
+  const totalDebit = Number(estimatedTotalDebit);
+  if (!Number.isFinite(totalDebit) || totalDebit > Number(maxTotalDebitQuote)) {
+    throw new Error("estimated_total_debit_exceeds_free_quote_balance");
+  }
+
+  const roundedNotionalUnits = (notionalNumerator + notionalDenominator / 2n) / notionalDenominator;
+  if (notionalNumerator < minNotionalUnits * notionalDenominator) {
+    throw new Error("rounded_limit_order_still_below_venue_minimum");
+  }
+  const quantity = unitsDecimal(quantityUnits, quantityPrecision);
+  const notional = Number(unitsDecimal(roundedNotionalUnits, 8));
   const visibleAskQuantity = asks
     .filter(level => level.price <= limitPriceNumber)
     .reduce((sum, level) => sum + level.quantity, 0);
@@ -194,18 +214,24 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
     type: "LIMIT",
     quantity,
     price: limitPrice,
-    maxQuoteNotional: Number(quoteBudget),
-    maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
-    quoteBudget,
+    requestedQuoteAmount: quoteBudget,
+    maxQuoteNotional: Number(maxQuoteBudget),
+    maxTotalDebitQuote: Number(maxTotalDebitQuote),
+    quoteBudget: maxQuoteBudget,
     estimatedQuoteNotional: notional,
+    estimatedTotalDebitQuote: totalDebit,
+    estimatedFeeQuote: Math.max(0, totalDebit - notional),
+    commissionBps,
+    quantityRoundedUpToLotStep: quantityUnits > minimumRequiredQuantityUnits,
     minNotional,
     lotStepSize: lot.stepSize,
     lotMinQty: lot.minQty,
     priceTickSize: priceFilter.tickSize,
     timeInForce: "GTC_DEFAULT",
-    executionMode: "price_capped_limit"
+    executionMode: "quote_input_rounded_up_to_lot_step"
   };
 }
+
 function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (!isRecord(symbolInfo) || symbolInfo.symbol !== ONE_SHOT_SYMBOL) {
     throw new Error("btc_usdt_symbol_missing");
@@ -227,18 +253,27 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     throw new Error("account_spot_permission_missing");
   }
   const usdt = getBalances(account).find(row => isRecord(row) && row.asset === ONE_SHOT_QUOTE_ASSET);
-  const freeUsdt = positive(usdt?.free) ?? 0;
-  if (freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
+  const freeUsdtString = usdt?.free === undefined ? "0" : String(usdt.free);
+  const freeUsdtUnits = decimalUnits(freeUsdtString, 8);
+  const freeUsdt = Number(unitsDecimal(freeUsdtUnits, 8));
+  if (!Number.isFinite(freeUsdt) || freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
     throw new Error("free_usdt_below_one");
   }
   const makerCommission = Number(account.makerCommission);
   const takerCommission = Number(account.takerCommission);
-  const commissionBps =
-    Number.isSafeInteger(makerCommission) && makerCommission >= 0 && makerCommission <= 10_000 &&
-    Number.isSafeInteger(takerCommission) && takerCommission >= 0 && takerCommission <= 10_000
-      ? Math.max(makerCommission, takerCommission) : null;
-  // The user's order amount is the quote notional; do not subtract a fee reserve.
-  // Tabdeal reports the actual commission and commissionAsset on each fill.
+  if (!Number.isSafeInteger(makerCommission) || makerCommission < 0 || makerCommission > 10_000 ||
+      !Number.isSafeInteger(takerCommission) || takerCommission < 0 || takerCommission > 10_000) {
+    throw new Error("account_spot_commission_rate_unavailable");
+  }
+  const commissionBps = Math.max(makerCommission, takerCommission);
+  // User's quote input stays 1 USDT. The free account balance is the absolute
+  // all-in debit cap; reserve the maximum account commission against that cap.
+  const maxQuoteBudgetUnits =
+    (freeUsdtUnits * 10_000n) / BigInt(10_000 + commissionBps);
+  const maxQuoteBudget = unitsDecimal(maxQuoteBudgetUnits, 8);
+  if (maxQuoteBudgetUnits < decimalUnits(ONE_SHOT_QUOTE_AMOUNT, 8)) {
+    throw new Error("free_usdt_insufficient_for_one_quote_unit_after_fees");
+  }
   const quoteBudget = ONE_SHOT_QUOTE_AMOUNT;
   if (!Array.isArray(openOrders) || openOrders.length !== 0) {
     throw new Error("existing_btcusdt_open_orders_present");
@@ -290,7 +325,8 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
       symbol: ONE_SHOT_SYMBOL, side: "BUY", type: "MARKET",
       quoteOrderQty: quoteBudget,
       maxQuoteNotional: Number(quoteBudget),
-      maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
+      maxTotalDebitQuote: freeUsdt,
+      maxQuoteBudget,
       quoteBudget, commissionBps,
       estimatedQuoteNotional: Number(quoteBudget),
       freeUsdt, minNotional, bestBid, bestAsk, spreadBps,
@@ -303,10 +339,10 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     };
   }
 
-  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0]), quoteBudget});
+  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0]), quoteBudget, maxQuoteBudget, maxTotalDebitQuote: freeUsdt, commissionBps});
   return {
     symbol: ONE_SHOT_SYMBOL, side: "BUY", ...limitIntent,
-    freeUsdt, commissionBps, bestBid, bestAsk, spreadBps,
+    freeUsdt, maxQuoteBudget, commissionBps, bestBid, bestAsk, spreadBps,
     marketOrderAllowed: false,
     quoteOrderQtyMarketAllowed: false,
     openOrdersBefore: openOrders.length
@@ -408,7 +444,7 @@ export async function runTabdealOneShotBuy({
     checkedAt: new Date().toISOString(),
     symbol: ONE_SHOT_SYMBOL,
     quoteAsset: ONE_SHOT_QUOTE_ASSET,
-    quoteAmountCap: ONE_SHOT_QUOTE_AMOUNT,
+    quoteAmountInput: ONE_SHOT_QUOTE_AMOUNT,
     side: "BUY",
     orderType: "MARKET",
     automaticRetry: false,
@@ -551,7 +587,8 @@ export function safeOneShotSummary(report) {
   return {
     checkedAt: report.checkedAt,
     symbol: report.symbol,
-    quoteAmountCap: report.quoteAmountCap,
+    quoteAmountInput: report.quoteAmountInput,
+    maxTotalDebitQuoteCap: report.preflight?.maxTotalDebitQuote ?? report.diagnostics?.maxTotalDebitQuote ?? null,
     side: report.side,
     orderType: report.preflight?.type ?? report.orderType,
     result: report.result,
@@ -582,7 +619,8 @@ async function main() {
       "## Tabdeal one-shot Spot buy\n\n" +
       "- Result: **" + report.result + "**\n" +
       "- Symbol: " + ONE_SHOT_SYMBOL + "\n" +
-      "- Quote-amount cap: 1.00000000 USDT\n" +
+      "- Requested quote input: 1.00000000 USDT\n" +
+      "- All-in debit ceiling: " + (report.preflight?.maxTotalDebitQuote ?? "not confirmed") + " USDT\n" +
       "- Order submitted: " + String(report.orderSubmitted) + "\n" +
       "- Automatic retry: no\n" +
       "- Sell, cancel, withdrawal or transfer: not attempted\n" +
