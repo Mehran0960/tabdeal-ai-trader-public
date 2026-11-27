@@ -2,6 +2,8 @@ name: Tabdeal Public Market Scan
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "13 */6 * * *"
   push:
     branches: [main]
     paths:
@@ -29,4 +31,4 @@ jobs:
           name: tabdeal-public-market-snapshot
           path: artifacts/tabdeal-market-data/*.json
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
