@@ -282,6 +282,7 @@ async function main(){
       }
       if(ws===activeSocket){
         activeSocket=null;
+        try{ws.close();}catch{}
         if(!stopping)scheduleReconnect(reason);
       }
     };
