@@ -166,7 +166,7 @@ export async function runTabdealDynamicRotationHistoryCapture({
     let cursor=Number.isSafeInteger(knownLatest)&&knownLatest>0
       ?knownLatest+TABDEAL_DYNAMIC_HISTORY_POLICY.intervalMs
       :initialStart;
-    let pages=0,seriesRows=0,lastFetchedOpen=null;
+    let pages=0,seriesRows=0,lastFetchedOpen=null,pageCapHit=false;
     try{
       while(cursor<=endTimeMs&&pages<Number(maximumPagesPerSymbol)){
         const raw=await getJson(buildUrl(binanceBase,"/api/v3/klines",{
@@ -196,8 +196,9 @@ export async function runTabdealDynamicRotationHistoryCapture({
         const next=lastOpen+TABDEAL_DYNAMIC_HISTORY_POLICY.intervalMs;
         if(next<=cursor)fail("binance_dynamic_pagination_cursor_invalid_"+symbol);
         cursor=next;
+        if(pages>=Number(maximumPagesPerSymbol)&&cursor<=endTimeMs)pageCapHit=true;
       }
-      if(pages>=Number(maximumPagesPerSymbol)&&cursor<=endTimeMs){
+      if(pageCapHit){
         counts.paginationCapHits++;
         sourceErrors.push({provider:"binance_spot",symbol,code:"pagination_page_cap_reached"});
       }
