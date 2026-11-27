@@ -199,7 +199,7 @@ export async function buildTabdealGetOcoOrderRequest({
   const hasId = orderListId !== undefined && orderListId !== null && orderListId !== "";
   const hasClientId = listClientOrderId !== undefined && listClientOrderId !== null && listClientOrderId !== "";
   if (hasId === hasClientId) fail("tabdeal_oco_lookup_exactly_one_id_required");
-  if (hasId && !/^\\d{1,30}$/.test(String(orderListId))) fail("tabdeal_oco_order_list_id_invalid");
+  if (hasId && !/^\d{1,30}$/.test(String(orderListId))) fail("tabdeal_oco_order_list_id_invalid");
   if (hasClientId && !CLIENT_ORDER_ID.test(String(listClientOrderId))) {
     fail("tabdeal_oco_list_client_order_id_invalid");
   }
@@ -220,7 +220,7 @@ export async function buildTabdealCancelOcoOrderRequest({
   const hasId = orderListId !== undefined && orderListId !== null && orderListId !== "";
   const hasClientId = listClientOrderId !== undefined && listClientOrderId !== null && listClientOrderId !== "";
   if (hasId === hasClientId) fail("tabdeal_oco_cancel_exactly_one_id_required");
-  if (hasId && !/^\\d{1,30}$/.test(String(orderListId))) fail("tabdeal_oco_order_list_id_invalid");
+  if (hasId && !/^\d{1,30}$/.test(String(orderListId))) fail("tabdeal_oco_order_list_id_invalid");
   if (hasClientId && !CLIENT_ORDER_ID.test(String(listClientOrderId))) {
     fail("tabdeal_oco_list_client_order_id_invalid");
   }
@@ -258,7 +258,7 @@ function safeOco(data, fallbackListClientOrderId) {
   if (!record(data)) return null;
   const orderListId = data.orderListId === undefined || data.orderListId === null
     ? null : String(data.orderListId);
-  if (!orderListId || !/^\\d{1,30}$/.test(orderListId) ||
+  if (!orderListId || !/^\d{1,30}$/.test(orderListId) ||
       !Array.isArray(data.orders) || data.orders.length !== 2) return null;
   const orders = data.orders.map(row => {
     if (!record(row) || row.orderId === undefined || row.orderId === null) return null;
