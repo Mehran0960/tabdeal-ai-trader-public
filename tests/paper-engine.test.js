@@ -53,7 +53,7 @@ test("walks ask/bid liquidity with adverse latency buffer and partial fills",()=
 });
 
 test("entry plan applies 25 bps spread/depth, real fee, risk budget and minimum notional",()=>{
- const book={bids:[["99.9","10000000"]],asks:[["100","10000000"],["100.1","10000000"]]};
+ const book={bids:[["99.9","20000000"]],asks:[["100","10000000"],["100.1","10000000"]]};
  const result=createPaperEntryPlan({candidate,analysis,portfolio,book,
   orderbookLastUpdateMs:Date.now(),nowMs:Date.now()});
  assert.equal(result.approved,true);
@@ -128,7 +128,7 @@ test("Donchian Paper entry uses its own breakout signal and exit uses the prior 
  assert.equal(held.action,"exit");
 });
 test("Donchian Paper entry planner never relies on the EMA signal",()=>{
- const book={bids:[["99.9","10000000"]],asks:[["100","10000000"],["100.1","10000000"]]};
+ const book={bids:[["99.9","20000000"]],asks:[["100","10000000"],["100.1","10000000"]]};
  const result=createPaperEntryPlan({candidate:multiCandidate,analysis:breakoutAnalysis,portfolio,book,
   orderbookLastUpdateMs:Date.now(),nowMs:Date.now()});
  assert.equal(result.approved,true);
