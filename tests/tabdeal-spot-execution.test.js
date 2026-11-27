@@ -96,6 +96,8 @@ test("never repeats an uncertain POST; it reconciles once by client order ID", a
     liveTradingEnabled: true,
     killSwitch: false,
     explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
     fetchImpl: async (url, options) => {
       calls.push({url, method: options.method});
       if (options.method === "POST") throw new Error("simulated network timeout");
@@ -108,7 +110,11 @@ test("never repeats an uncertain POST; it reconciles once by client order ID", a
   });
   const result = await client.submitLimitOrder({
     symbol: "BTCUSDT", side: "BUY", quantity: "0.001", price: "65000",
-    clientOrderId: "paper-recover-1"
+    clientOrderId: "paper-recover-1",
+    riskPlan: {
+      approved: true, quantity: 0.001, notional: 65,
+      assumptions: {leverage: false, shorting: false}
+    }
   });
   assert.equal(result.status, "reconciled_after_uncertain_submit");
   assert.equal(result.order.orderId, "77");
