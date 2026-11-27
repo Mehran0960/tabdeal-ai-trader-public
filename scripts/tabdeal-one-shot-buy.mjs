@@ -8,6 +8,7 @@ export const ONE_SHOT_SYMBOL = "BTCUSDT";
 export const ONE_SHOT_QUOTE_ASSET = "USDT";
 export const ONE_SHOT_QUOTE_AMOUNT = "1.00000000";
 export const ONE_SHOT_CLIENT_ID_PREFIX = "t1shot-";
+export const ONE_SHOT_LOCK_REF = "refs/tags/tabdeal-one-shot-1usdt-20261127";
 const MAX_SPREAD_BPS = 30;
 const MAX_BOOK_SLIPPAGE_BPS = 5;
 const RECV_WINDOW_MS = 5_000;
@@ -211,6 +212,30 @@ function normalizedOrder(data, fallbackClientOrderId) {
     fills
   };
 }
+export async function claimOneShotExecutionLock({ token, repository, commitSha, fetchImpl = fetch } = {}) {
+  const validRepo = typeof repository === "string" && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository);
+  if (typeof token !== "string" || !token.trim() || !validRepo ||
+      typeof commitSha !== "string" || !/^[a-f0-9]{40}$/i.test(commitSha) ||
+      typeof fetchImpl !== "function") return {claimed: false, result: "one_shot_lock_configuration_missing"};
+  const base = "https://api.github.com/repos/" + repository;
+  const headers = {accept: "application/vnd.github+json", authorization: "Bearer " + token,
+    "X-GitHub-Api-Version": "2022-11-28", "content-type": "application/json"};
+  try {
+    const existing = await fetchImpl(base + "/git/ref/tags/" + encodeURIComponent(ONE_SHOT_LOCK_REF.slice("refs/tags/".length)),
+      {method: "GET", headers, redirect: "error", signal: AbortSignal.timeout(8_000)});
+    if (existing.ok) return {claimed: false, result: "one_shot_already_claimed"};
+    if (existing.status !== 404) return {claimed: false, result: "one_shot_lock_read_unresolved"};
+  } catch { return {claimed: false, result: "one_shot_lock_read_unresolved"}; }
+  try {
+    const created = await fetchImpl(base + "/git/refs", {method: "POST", headers,
+      body: JSON.stringify({ref: ONE_SHOT_LOCK_REF, sha: commitSha}), redirect: "error",
+      signal: AbortSignal.timeout(8_000)});
+    if (created.status === 201) return {claimed: true, result: "one_shot_lock_claimed"};
+    if (created.status === 422) return {claimed: false, result: "one_shot_already_claimed"};
+    return {claimed: false, result: "one_shot_lock_create_unresolved"};
+  } catch { return {claimed: false, result: "one_shot_lock_create_unresolved"}; }
+}
+
 async function lookupByClientId({clientId, apiKey, apiSecret, fetchImpl}) {
   const {response, data} = await signedGet("/order", {
     symbol: ONE_SHOT_SYMBOL,
@@ -227,7 +252,11 @@ export async function runTabdealOneShotBuy({
   apiSecret = process.env.TABDEAL_API_SECRET,
   confirm = process.env.TABDEAL_ONE_SHOT_CONFIRM === "true",
   runId = process.env.GITHUB_RUN_ID,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  githubToken = process.env.GITHUB_TOKEN,
+  repository = process.env.GITHUB_REPOSITORY,
+  commitSha = process.env.GITHUB_SHA,
+  claimLock = claimOneShotExecutionLock
 } = {}) {
   const base = {
     checkedAt: new Date().toISOString(),
@@ -287,14 +316,14 @@ export async function runTabdealOneShotBuy({
     return {...base, result: "pre_submit_order_lookup_failed_halt", reason: String(error?.message || error).slice(0, 160), preflight, orderSubmitted: false};
   }
 
+  const lock = await claimLock({token: githubToken, repository, commitSha, fetchImpl});
+  if (!lock?.claimed) return {...base, result: lock?.result || "one_shot_lock_not_claimed", preflight, orderSubmitted: false};
+
   const params = {
     symbol: ONE_SHOT_SYMBOL,
     side: "BUY",
     type: "MARKET",
-    quantity: undefined,
     quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
-    price: "0",
-    stopPrice: "0",
     newClientOrderId: clientId,
     timestamp: Date.now(),
     recvWindow: RECV_WINDOW_MS
@@ -328,6 +357,15 @@ export async function runTabdealOneShotBuy({
     return {...base, result: "post_outcome_unknown_halt_no_retry", preflight, orderSubmitted: "unknown", clientOrderId: clientId};
   }
 
+  if (!postResponse.ok && postResponse.status >= 500) {
+    try {
+      const reconciled = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl});
+      if (reconciled) return {...base, result: "reconciled_after_server_error", httpStatus: postResponse.status, preflight, order: reconciled, orderSubmitted: true};
+      return {...base, result: "server_error_order_not_found_halt_no_retry", httpStatus: postResponse.status, preflight, orderSubmitted: "unknown", clientOrderId: clientId};
+    } catch {
+      return {...base, result: "server_error_reconciliation_failed_halt_no_retry", httpStatus: postResponse.status, preflight, orderSubmitted: "unknown", clientOrderId: clientId};
+    }
+  }
   if (!postResponse.ok) {
     return {
       ...base,
