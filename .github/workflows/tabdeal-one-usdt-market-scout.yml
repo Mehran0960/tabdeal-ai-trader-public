@@ -1,0 +1,31 @@
+name: Scout Tabdeal USDT Spot pairs compatible with 1 USDT (read only)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/tabdeal-one-shot-scout.activate"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-one-usdt-market-scout
+  cancel-in-progress: false
+
+jobs:
+  scout:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Find a liquid USDT Spot market where a strict 1 USDT order is valid
+        env:
+          TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
+          TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
+        run: node scripts/tabdeal-one-usdt-market-scout.mjs

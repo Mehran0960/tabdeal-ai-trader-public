@@ -1,0 +1,4 @@
+READ-ONLY MARKET SCOUT
+Date: 2026-11-27
+Purpose: identify active liquid Tabdeal Spot USDT pairs whose live tick/step/min-notional filters allow a valid order not exceeding exactly 1 USDT.
+No order submission, cancellation or funds movement is permitted in this scout.
