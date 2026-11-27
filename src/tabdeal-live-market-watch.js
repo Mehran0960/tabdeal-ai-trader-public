@@ -60,6 +60,7 @@ export function discoverTabdealSpotUniverse(payload,{
     fail("tabdeal_live_market_cap_invalid");
   }
   const eligible=[];
+  const allQuoteAssetCounts={};
   const excluded={inactive:0,nonSpot:0,unsupportedQuote:0,excludedAsset:0,invalid:0};
   const seen=new Set();
   for(const market of payload){
@@ -70,6 +71,7 @@ export function discoverTabdealSpotUniverse(payload,{
     const symbol=market.symbol.trim().toUpperCase();
     const baseAsset=market.baseAsset.trim().toUpperCase();
     const quoteAsset=market.quoteAsset.trim().toUpperCase();
+    allQuoteAssetCounts[quoteAsset]=(allQuoteAssetCounts[quoteAsset]||0)+1;
     if(market.status!=="TRADING"){excluded.inactive++;continue;}
     if(market.isSpotTradingAllowed!==true||
        !Array.isArray(market.permissions)||!market.permissions.includes("SPOT")){
@@ -118,6 +120,7 @@ export function discoverTabdealSpotUniverse(payload,{
       quoteAssets:[...new Set(selected.map(row=>row.quoteAsset))].sort(),
       assets:[...new Set(selected.map(row=>row.baseAsset).concat(selected.map(row=>row.quoteAsset)))].sort(),
       marketRulesReadyCount:selected.filter(row=>row.marketRulesReady).length,
+      quoteAssetCounts:allQuoteAssetCounts,
       excluded
     }
   };
@@ -306,10 +309,13 @@ export function evaluateTabdealRelativeWatch({
   const latestRows=[];
   for(const item of assets.values()){
     if(!item.available)continue;
-    const last=item.priceRows.at(-1),at15=item.priceRows.at(-1-TABDEAL_LIVE_WATCH_POLICY.relativeLookbackMinutes),
-      at5=item.priceRows.at(-1-TABDEAL_LIVE_WATCH_POLICY.reversalLookbackMinutes),at1=item.priceRows.at(-2);
-    if(!last||!at15||!at5||!at1||last.time-at15.time!==
-       TABDEAL_LIVE_WATCH_POLICY.relativeLookbackMinutes*TABDEAL_LIVE_WATCH_POLICY.barIntervalMs||
+    const lastIndex=item.priceRows.length-1;
+    const last=item.priceRows[lastIndex],at15=item.priceRows[lastIndex-TABDEAL_LIVE_WATCH_POLICY.relativeLookbackMinutes],
+      at5=item.priceRows[lastIndex-TABDEAL_LIVE_WATCH_POLICY.reversalLookbackMinutes],at1=item.priceRows[lastIndex-1];
+    if(!last||!at15||!at5||!at1||
+       item.priceRows.slice(lastIndex-TABDEAL_LIVE_WATCH_POLICY.relativeLookbackMinutes,lastIndex+1)
+         .some((row,index,rows)=>index>0&&row.time-rows[index-1].time!==TABDEAL_LIVE_WATCH_POLICY.barIntervalMs)||
+       last.time-at15.time!==TABDEAL_LIVE_WATCH_POLICY.relativeLookbackMinutes*TABDEAL_LIVE_WATCH_POLICY.barIntervalMs||
        last.time-at5.time!==TABDEAL_LIVE_WATCH_POLICY.reversalLookbackMinutes*TABDEAL_LIVE_WATCH_POLICY.barIntervalMs||
        last.time-at1.time!==TABDEAL_LIVE_WATCH_POLICY.barIntervalMs)continue;
     const latestBook=item.book;
