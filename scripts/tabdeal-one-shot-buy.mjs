@@ -149,8 +149,10 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
     throw new Error("one_usdt_limit_quantity_outside_lot_filter");
   }
   const quantity = unitsDecimal(quantityUnits, quantityPrecision);
-  const exactNotionalQuoteUnits = (limitPriceUnits * quantityUnits * (10n ** 8n)) / scale;
-  const exceedsQuoteBudget = limitPriceUnits * quantityUnits * (10n ** 8n) > capUnits * scale;
+  const notionalNumerator = limitPriceUnits * quantityUnits * (10n ** 8n);
+  const notionalDenominator = scale;
+  const exactNotionalQuoteUnits = (notionalNumerator + notionalDenominator / 2n) / notionalDenominator;
+  const exceedsQuoteBudget = notionalNumerator > capUnits * scale;
   if (quantityUnits <= 0n || exceedsQuoteBudget) {
     throw new Error("limit_notional_exceeds_one_usdt");
   }
