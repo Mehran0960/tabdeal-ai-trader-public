@@ -6,6 +6,9 @@ import {
   buildTabdealLimitOrderRequest,
   buildTabdealGetOrderRequest,
   buildTabdealCancelOrderRequest,
+  buildTabdealOcoSellOrderRequest,
+  buildTabdealGetOcoOrderRequest,
+  buildTabdealCancelOcoOrderRequest,
   createTabdealSpotExecutionClient
 } from "../src/tabdeal-spot-execution.js";
 
@@ -284,4 +287,122 @@ test("emergency cancellation still requires explicit owner approval", async () =
   await assert.rejects(client.cancelOrder({symbol: "BTCUSDT", orderId: 88}),
     /cancel_owner_approval_required/);
   assert.equal(calls, 0);
+});
+
+
+test("builds a signed SELL OCO protective exit matching Tabdeal's documented fields", async () => {
+  const request = await buildTabdealOcoSellOrderRequest({
+    ...credentials, ...deterministic, symbol: "BTCUSDT",
+    quantity: "0.001", price: "68000", stopPrice: "63000", stopLimitPrice: "62900",
+    listClientOrderId: "oco-list-1", limitClientOrderId: "oco-limit-1", stopClientOrderId: "oco-stop-1"
+  });
+  assert.equal(request.method, "POST");
+  assert.equal(request.url, "https://api1.tabdeal.org/api/v1/order/oco");
+  const params = new URLSearchParams(request.body);
+  const signature = params.get("signature");
+  params.delete("signature");
+  assert.equal(signature, createHmac("sha256", "test-secret").update(params.toString()).digest("hex"));
+  assert.equal(params.get("side"), "SELL");
+  assert.equal(params.get("symbol"), "BTCUSDT");
+  assert.equal(params.get("quantity"), "0.001");
+  assert.equal(params.get("price"), "68000");
+  assert.equal(params.get("stopPrice"), "63000");
+  assert.equal(params.get("stopLimitPrice"), "62900");
+  assert.equal(params.get("listClientOrderId"), "oco-list-1");
+  assert.equal(params.get("limitClientOrderId"), "oco-limit-1");
+  assert.equal(params.get("stopClientOrderId"), "oco-stop-1");
+});
+
+test("builds OCO lookup and cancellation on the documented signed endpoints", async () => {
+  const lookup = await buildTabdealGetOcoOrderRequest({
+    ...credentials, ...deterministic, listClientOrderId: "oco-list-1"
+  });
+  assert.equal(lookup.method, "GET");
+  assert.ok(lookup.url.startsWith("https://api1.tabdeal.org/r/api/v1/orderList?"));
+  assert.equal(new URL(lookup.url).searchParams.get("origClientOrderId"), "oco-list-1");
+  const cancel = await buildTabdealCancelOcoOrderRequest({
+    ...credentials, ...deterministic, symbol: "BTCUSDT", orderListId: 321
+  });
+  assert.equal(cancel.method, "DELETE");
+  assert.ok(cancel.url.startsWith("https://api1.tabdeal.org/api/v1/orderList?"));
+  assert.equal(new URL(cancel.url).searchParams.get("orderListId"), "321");
+});
+
+test("rejects unsafe OCO price relationships, duplicate IDs and ambiguous lookups", async () => {
+  const base = {
+    ...credentials, ...deterministic, symbol: "BTCUSDT", quantity: "0.001",
+    price: "68000", stopPrice: "63000", stopLimitPrice: "62900",
+    listClientOrderId: "oco-list-1", limitClientOrderId: "oco-limit-1", stopClientOrderId: "oco-stop-1"
+  };
+  await assert.rejects(buildTabdealOcoSellOrderRequest({...base, stopPrice: "69000"}), /price_relationship_invalid/);
+  await assert.rejects(buildTabdealOcoSellOrderRequest({...base, stopClientOrderId: "oco-limit-1"}), /client_order_ids_must_be_unique/);
+  await assert.rejects(buildTabdealGetOcoOrderRequest({...credentials, ...deterministic}), /exactly_one_id_required/);
+  await assert.rejects(buildTabdealCancelOcoOrderRequest({
+    ...credentials, ...deterministic, symbol: "BTCUSDT", orderListId: 1, listClientOrderId: "oco-list-1"
+  }), /exactly_one_id_required/);
+});
+
+test("OCO submission stays closed by default and makes no network request", async () => {
+  let calls = 0;
+  const client = createTabdealSpotExecutionClient({
+    ...credentials, fetchImpl: async () => { calls++; throw new Error("must not be called"); }
+  });
+  await assert.rejects(client.submitOcoExit({
+    symbol: "BTCUSDT", quantity: "0.001", price: "68000", stopPrice: "63000",
+    stopLimitPrice: "62900", listClientOrderId: "oco-list-1",
+    limitClientOrderId: "oco-limit-1", stopClientOrderId: "oco-stop-1",
+    riskPlan: {approved: true, quantity: 0.001, notional: 68, assumptions: {leverage: false, shorting: false}}
+  }), /live_execution_gate_closed/);
+  assert.equal(calls, 0);
+});
+
+test("OCO submission reconciles before posting and never repeats an uncertain POST", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials, liveTradingEnabled: true, killSwitch: false, explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100, portfolioRiskChecksPassed: true,
+    fetchImpl: async (url, options) => {
+      calls.push({url: String(url), method: options.method});
+      if (options.method === "GET") return new Response(JSON.stringify({code: -2013, msg: "not found"}), {status: 404});
+      if (options.method === "POST") throw new Error("simulated timeout");
+      throw new Error("unexpected_method");
+    }
+  });
+  const result = await client.submitOcoExit({
+    symbol: "BTCUSDT", quantity: "0.001", price: "68000", stopPrice: "63000",
+    stopLimitPrice: "62900", listClientOrderId: "oco-list-2",
+    limitClientOrderId: "oco-limit-2", stopClientOrderId: "oco-stop-2",
+    riskPlan: {approved: true, quantity: 0.001, notional: 68, assumptions: {leverage: false, shorting: false}}
+  });
+  assert.equal(result.status, "unknown_oco_submission_state_halt");
+  assert.deepEqual(calls.map(call => call.method), ["GET", "POST", "GET"]);
+  assert.equal(calls.filter(call => call.method === "POST").length, 1);
+});
+
+test("OCO cancellation requires owner approval but remains available with kill switch active", async () => {
+  let calls = 0;
+  const guarded = createTabdealSpotExecutionClient({
+    ...credentials, fetchImpl: async () => { calls++; throw new Error("must not be called"); }
+  });
+  await assert.rejects(guarded.cancelOcoOrder({
+    symbol: "BTCUSDT", orderListId: 7
+  }), /cancel_owner_approval_required/);
+  const approved = createTabdealSpotExecutionClient({
+    ...credentials, explicitOwnerApproval: true, liveTradingEnabled: false, killSwitch: true,
+    fetchImpl: async (_url, options) => {
+      calls++;
+      assert.equal(options.method, "DELETE");
+      return new Response(JSON.stringify({
+        orderListId: 7, listOrderStatus: "ALL_DONE", listStatusType: "ALL_DONE",
+        orders: [
+          {orderId: 11, clientOrderId: "oco-limit", symbol: "BTCUSDT"},
+          {orderId: 12, clientOrderId: "oco-stop", symbol: "BTCUSDT"}
+        ]
+      }), {status: 200, headers: {"content-type": "application/json"}});
+    }
+  });
+  const result = await approved.cancelOcoOrder({symbol: "BTCUSDT", orderListId: 7});
+  assert.equal(result.status, "oco_cancel_response_received");
+  assert.equal(result.order.listOrderStatus, "ALL_DONE");
+  assert.equal(calls, 1);
 });
