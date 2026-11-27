@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {evaluateTabdealMvpShadow} from "../workers/tabdeal-mvp-shadow/index.js";
+import {evaluateTabdealMvpShadow, isAuthorizedShadowScanToken} from "../workers/tabdeal-mvp-shadow/index.js";
 
 const interval = 4 * 60 * 60 * 1000;
 const nowMs = Date.parse("2026-11-27T08:00:00.000Z");
@@ -101,4 +101,12 @@ test("does not generate a buy signal even when the trend is up and market is usa
   assert.equal(report.decision, "WAIT");
   assert.equal(report.researchGate.approvedStrategyExists, false);
   assert.equal(report.safety.orderSubmissionAttempted, false);
+});
+
+test("manual scan trigger token comparison fails closed", () => {
+  assert.equal(isAuthorizedShadowScanToken("a-long-random-token", "a-long-random-token"), true);
+  assert.equal(isAuthorizedShadowScanToken("a-long-random-token", "wrong-token"), false);
+  assert.equal(isAuthorizedShadowScanToken("a-long-random-token", ""), false);
+  assert.equal(isAuthorizedShadowScanToken("", "anything"), false);
+  assert.equal(isAuthorizedShadowScanToken(null, "anything"), false);
 });
