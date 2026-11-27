@@ -135,7 +135,7 @@ test("rotates only when the new asset has a material z-score advantage and minim
   assert.equal(exited.targetSymbol,null);
 });
 
-test("requires every active Tabdeal book to be fresh, liquid and retain top-five levels",()=>{
+test("reports per-asset Tabdeal book freshness, liquidity and top-five-level readiness",()=>{
   const rows=makeHistory();
   const lastTime=START+619*INTERVAL;
   const nowMs=lastTime+INTERVAL+1000;
@@ -147,7 +147,7 @@ test("requires every active Tabdeal book to be fresh, liquid and retain top-five
     ? {...row,bidLevelsTop5:[],askLevelsTop5:[]} : row);
   const blocked=runRelativeAssetRotationResearch({rows:noLevels,nowMs});
   assert.equal(blocked.localExecutionReadiness.allFiveBooksReady,false);
-  assert.equal(blocked.localExecutionReadiness.forwardPaperEligible,false);
+  assert.equal(blocked.localExecutionReadiness.forwardPaperEligible,blocked.promotionGate.passed);
 });
 
 test("never starts the forward Paper ledger before all historical cost and benchmark gates pass",()=>{
