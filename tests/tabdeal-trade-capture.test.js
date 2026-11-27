@@ -39,9 +39,9 @@ test("detects a capped recent-trades page that cannot cover the previous poll in
     last_trade_time_ms: now - 40_000,
     last_successful_poll_at_ms: now - 30_000
   };
-  const rows = Array.from({length: 1000}, (_, i) =>
+  const rows = normalized(Array.from({length: 1000}, (_, i) =>
     trade(i + 200, now - 10_000 + i, "60000")
-  );
+  ));
   const result = assessTabdealTradePageCoverage(rows, state);
   assert.equal(result.status, "possible_truncation");
   assert.equal(result.newTrades.length, 0);
@@ -53,10 +53,12 @@ test("accepts an overlapping capped page and returns only unseen trades", () => 
     last_trade_time_ms: now - 30_000,
     last_successful_poll_at_ms: now - 30_000
   };
-  const rows = Array.from({length: 999}, (_, i) =>
-    trade(i + 1, now - 60_000 + i * 20, "60000")
-  );
-  rows.push(trade(1001, now - 1_000, "60010"));
+  const rows = normalized([
+    ...Array.from({length: 999}, (_, i) =>
+      trade(i + 1, now - 60_000 + i * 20, "60000")
+    ),
+    trade(1001, now - 1_000, "60010")
+  ]);
   const result = assessTabdealTradePageCoverage(rows, state);
   assert.equal(result.status, "complete");
   assert.deepEqual(result.newTrades.map(row => row.id), ["1001"]);
