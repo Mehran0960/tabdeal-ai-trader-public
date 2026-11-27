@@ -28,7 +28,7 @@ function makeFetch({order = {
   orderId: 118071583933,
   price: "59345.76",
   qty: "0.00001700",
-  quoteQty: "1.00887792",
+  quoteQty: "0.00001694",
   commission: "0.00000006",
   commissionAsset: "BTC",
   time: 1795791184720,
@@ -66,6 +66,7 @@ test("reads FILLED order and trade commission without any exchange writes", asyn
   assert.equal(report.order.status, "FILLED");
   assert.equal(report.order.executedQuantity, "0.00001700");
   assert.equal(report.order.cumulativeQuoteQuantity, "1.00887792");
+  assert.equal(report.accounting.tradeQuoteQuantitySum, "1.00887792");
   assert.equal(report.accounting.feeTotals[0].asset, "BTC");
   assert.equal(report.accounting.feeTotals[0].amount, "0.00000006");
   assert.equal(report.accounting.netAcquiredBTCIfBtcFee, "0.00001694");
