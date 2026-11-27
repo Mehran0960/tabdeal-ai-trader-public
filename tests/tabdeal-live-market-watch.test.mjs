@@ -22,6 +22,8 @@ const market=(symbol,base,quote="USDT",extra={})=>({
     {filterType:"MIN_NOTIONAL",minNotional:"1"},
     {filterType:"PRICE_FILTER",tickSize:"0.00000001"}
   ],
+  minNotional:"1",
+  quoteUnitVerified:quote!=="IRT",
   marketRulesReady:true,
   ...extra
 });
@@ -41,7 +43,7 @@ function liveStateWithBooks(markets,nowMs){
   return state;
 }
 
-test("discovers all active Spot markets quoted in USDT or BTC and excludes IRT",()=>{
+test("discovers active Spot markets quoted in USDT, BTC and IRT while flagging IRT as unverified",()=>{
   const payload=[
     market("BTCUSDT","BTC","USDT"),
     market("ETHBTC","ETH","BTC"),
@@ -51,10 +53,13 @@ test("discovers all active Spot markets quoted in USDT or BTC and excludes IRT",
     market("BASEIRT","IRT","USDT")
   ];
   const result=discoverTabdealSpotUniverse(payload);
-  assert.deepEqual(result.markets.map(row=>row.symbol),["BTCUSDT","ETHBTC"]);
+  assert.deepEqual(result.markets.map(row=>row.symbol),["BTCUSDT","ETHBTC","ETHIRT"]);
   assert.equal(result.universe.totalExchangeInfoMarkets,6);
-  assert.equal(result.universe.activeSupportedSpotMarkets,2);
-  assert.equal(result.universe.marketRulesReadyCount,2);
+  assert.equal(result.universe.activeSupportedSpotMarkets,3);
+  assert.equal(result.universe.marketRulesReadyCount,3);
+  assert.deepEqual(result.universe.quoteAssets,["BTC","IRT","USDT"]);
+  assert.deepEqual(result.universe.unverifiedQuoteAssets,["IRT"]);
+  assert.equal(result.markets.find(row=>row.symbol==="ETHIRT").quoteUnitVerified,false);
   assert.equal(result.universe.excluded.excludedAsset,1);
   assert.equal(result.universe.excluded.inactive,1);
   assert.equal(result.universe.excluded.nonSpot,1);
