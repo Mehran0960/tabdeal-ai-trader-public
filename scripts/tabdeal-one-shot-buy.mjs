@@ -8,6 +8,7 @@ export const ONE_SHOT_SYMBOL = "BTCUSDT";
 export const ONE_SHOT_QUOTE_ASSET = "USDT";
 export const ONE_SHOT_QUOTE_AMOUNT = "1.00000000";
 export const ONE_SHOT_CLIENT_ID_PREFIX = "t1shot-";
+export const ONE_SHOT_CLIENT_ORDER_ID = "t1shot-btcusdt-20261127";
 export const ONE_SHOT_LOCK_REF = "refs/tags/tabdeal-one-shot-1usdt-20261127";
 const MAX_SPREAD_BPS = 30;
 const MAX_BOOK_SLIPPAGE_BPS = 5;
@@ -25,10 +26,8 @@ function apiCode(data) {
   return isRecord(data) && (typeof data.code === "number" || typeof data.code === "string")
     ? data.code : null;
 }
-function clientOrderId(runId) {
-  const id = String(runId ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
-  if (!id) throw new Error("github_run_id_missing");
-  return ONE_SHOT_CLIENT_ID_PREFIX + id;
+function clientOrderId() {
+  return ONE_SHOT_CLIENT_ORDER_ID;
 }
 function signParams(params, secret) {
   const query = new URLSearchParams();
@@ -382,7 +381,7 @@ export async function runTabdealOneShotBuy({
   }
   if (typeof fetchImpl !== "function") return {...base, result: "fetch_unavailable", orderSubmitted: false};
   let clientId;
-  try { clientId = clientOrderId(runId); }
+  try { clientId = clientOrderId(); }
   catch { return {...base, result: "workflow_run_id_missing", orderSubmitted: false}; }
 
   let preflight;
