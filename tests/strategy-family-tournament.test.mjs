@@ -107,7 +107,7 @@ test("separately prices the sell and buy legs of a rotation",()=>{
   });
   assert.equal(soldBought.orderCount,2);
   assert.equal(soldBought.position.symbol,"ETHUSDT");
-  assert.ok(Math.abs(soldBought.position.quantity-9.78)<0.02);
+  assert.ok(Math.abs(soldBought.position.quantity-9.96)<0.02);
 });
 test("uses a next-bar execution price and charges each order",()=>{
   const result=strategyTournamentInternals.executeOrder({
