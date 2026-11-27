@@ -23,9 +23,9 @@ async function readOnlyGet({apiKey,apiSecret,path,params,fetchImpl}) {
     try {data=JSON.parse(body);} catch {data=null;}
     if(!response.ok) {
       const code=safeCode(data);
-      // Only the exchange's structured "order does not exist" code proves
-      // the synthetic-ID lookup reached the expected order-not-found result.
-      if(path==="/order"&&String(code)==="-2013") {
+      // Tabdeal documents API code 1204 as "order not found".
+      // Do not treat a bare 404 or any other code as an empty lookup.
+      if(path==="/order"&&Number(code)===1204) {
         return {ok:true,httpStatus:response.status,apiErrorCode:code,found:false,
           result:"synthetic_order_not_found_as_expected"};
       }

@@ -319,7 +319,8 @@ export function createTabdealSpotExecutionClient({
       signal: AbortSignal.timeout(timeoutMs)
     });
     const data = await response.json().catch(() => null);
-    if (response.status === 404) return null;
+    if (response.status === 404 && record(data) && Number(data.code) === 1204) return null;
+    if (response.status === 404) fail("tabdeal_order_lookup_unclassified_404");
     if (!response.ok) fail("tabdeal_order_lookup_http_" + response.status);
     const order = safeOrder(data, clientOrderId);
     if (!order) fail("tabdeal_order_lookup_payload_invalid");
@@ -337,7 +338,8 @@ export function createTabdealSpotExecutionClient({
       signal: AbortSignal.timeout(timeoutMs)
     });
     const data = await response.json().catch(() => null);
-    if (response.status === 404) return null;
+    if (response.status === 404 && record(data) && Number(data.code) === 1205) return null;
+    if (response.status === 404) fail("tabdeal_oco_lookup_unclassified_404");
     if (!response.ok) fail("tabdeal_oco_lookup_http_" + response.status);
     const order = safeOco(data, listClientOrderId);
     if (!order) fail("tabdeal_oco_lookup_payload_invalid");
