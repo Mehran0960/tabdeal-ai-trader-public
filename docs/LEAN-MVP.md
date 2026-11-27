@@ -50,6 +50,14 @@ If Kraken retrieval is unavailable or the returned candle series is stale/gapped
 5. Apply the deterministic portfolio risk plan. Existing project defaults are 0.25% risk per trade, 20% maximum gross exposure, 2% daily-loss stop and 20% portfolio drawdown stop; no leverage or shorting.
 6. Until forward Paper is separately enabled and reconciled, report the signal and local execution feasibility only. Never create a live order from the research workflow.
 
+## Exploratory local 1m forward-paper monitor
+
+The local BTCUSDT stream is also evaluated with a fixed, pre-registered diagnostic rule: 1m EMA(9/21/50) alignment, Wilder RSI(14) in 50–68, positive MACD(12/26/9) histogram, and 5m EMA(12) above EMA(26), with bounded ATR and minimum recent trade activity. This experiment is intentionally not a replacement for the 4h historical strategy or its OOS/FDR gate.
+
+The Worker records every evaluable closed minute, and only marks a BUY_CANDIDATE as paper-eligible when a public Spot book is valid, spread is no more than 30 bps, and both sides have at least 1,000 USDT depth within 0.25%. It uses a fixed 50 USDT virtual reference notional and records forward mark-outs at 5, 15 and 60 minutes. Round-trip fee sensitivity is shown at 10/20/40 bps per side; these are stress assumptions, not a claim about the user's actual Tabdeal fee tier. Entry uses the observed ask plus a 5 bps buffer; exit modelling discounts the future candle close by half the entry spread plus 5 bps.
+
+This is a forward predictive mark-out study, not a complete simulated wallet with stop/target exits, and not a real order. It is not eligible for live trading. The monitor uses public market data only, never calls private account endpoints, never uses API credentials, and cannot create exchange orders. Data gaps, stale captures, inadequate activity, or inadequate book liquidity result in WAIT/no paper entry. Paper observations are deduplicated and retained for 30 days.
+
 ## Execution adapter
 
 src/tabdeal-spot-execution.js adds a small signed Spot LIMIT request adapter based on the exchange's official SDK contract. It supports only:
@@ -74,7 +82,7 @@ The official SDK documents Spot order submission at POST /api/v1/order, private 
 - This public repository is the source for public market data, reusable strategy/risk code and the sanitized adapter.
 - Cloudflare Worker secrets and D1 bindings stay in Cloudflare; none are copied into GitHub source.
 - The existing private nobitex-ai-trader repository is now a legacy/private operations and Nobitex archive. It must not be required for routine public-data collection, research or adapter unit tests.
-- The Cloudflare `tabdeal-mvp-shadow` Worker runs one public Spot trade poll per minute and the existing Shadow trend/book scan every 15 minutes. D1 stores compact 1m aggregates only; the Worker is not an order executor.
+- The Cloudflare `tabdeal-mvp-shadow` Worker runs one public Spot trade poll per minute, a local exploratory indicator/forward-paper signal evaluation after capture, and the existing Shadow trend/book scan every 15 minutes. D1 stores compact 1m aggregates plus deduplicated signal evaluations and fixed-horizon mark-outs; the Worker is not an order executor.
 - This source change requires the D1 schema migration and a matching Worker deployment/schedule update. Those operational changes remain read-only: no credentials, account access, or live order capability are added.
 
 ## Acceptance gates
