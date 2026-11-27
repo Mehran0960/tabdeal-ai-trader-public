@@ -37,12 +37,12 @@ function validExchangeInfo(overrides = {}) {
     ...overrides
   }];
 }
-function validLimitExchangeInfo({minNotional = "0.5"} = {}) {
+function validLimitExchangeInfo({minNotional = "1.0", stepSize = "0.00000100"} = {}) {
   return validExchangeInfo({
     quoteOrderQtyMarketAllowed: false,
     filters: [
       {filterType: "MIN_NOTIONAL", minNotional, applyToMarket: false},
-      {filterType: "LOT_SIZE", minQty: "0.000001", maxQty: "100", stepSize: "0.00000001"},
+      {filterType: "LOT_SIZE", minQty: stepSize, maxQty: "100", stepSize},
       {filterType: "PRICE_FILTER", minPrice: "0.01", maxPrice: "10000000", tickSize: "0.01"}
     ]
   });
@@ -214,23 +214,25 @@ test("matches the exchange UI: 1 USDT quote input rounds BTC quantity up to the 
   assert.equal(params.get("timeInForce"), null);
 });
 
-test("blocks the LIMIT fallback when the venue minimum cannot fit under one USDT", async () => {
+test("blocks when lot-step round-up plus fee would exceed the available 1.05 USDT", async () => {
   const {fetchImpl, calls} = makeFetch({
-    exchangeInfo: validLimitExchangeInfo({minNotional: "1.01"})
+    exchangeInfo: validLimitExchangeInfo({minNotional: "1.05"}),
+    depth: validDepth({bids: [["61400.00", "1"]], asks: [["61463.50", "2"]]})
   });
   const report = await runTabdealOneShotBuy({
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
-  assert.equal(report.reason, "limit_notional_below_venue_minimum");
-  assert.equal(report.diagnostics.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
-  assert.equal(report.diagnostics.minimumQuoteNotional, "1.01");
+  assert.equal(report.reason, "rounded_quantity_exceeds_available_balance_after_fees");
+  assert.equal(report.diagnostics.requestedQuoteAmount, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.diagnostics.minimumQuoteNotional, "1.05");
+  assert.equal(report.diagnostics.maxTotalDebitQuote, 1.05);
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 
-test("accepts a one-USDT notional after exact quote precision rounding, without exceeding one", async () => {
-  const highPrecisionInfo = validLimitExchangeInfo({minNotional: "1"});
+test("rounds high-precision quantity up exactly and stays within the all-in 1.05 USDT balance", async () => {
+  const highPrecisionInfo = validLimitExchangeInfo({minNotional: "1.0", stepSize: "0.0000000000000001"});
   highPrecisionInfo[0].filters = [
     {filterType: "MIN_NOTIONAL", minNotional: "1.00000000", applyToMarket: false},
     {filterType: "LOT_SIZE", minQty: "0.0000000000000001", maxQty: "100", stepSize: "0.0000000000000001"},
@@ -241,8 +243,8 @@ test("accepts a one-USDT notional after exact quote precision rounding, without 
     postBody: {
       ...filledOrder(),
       price: "90045.0000000000000000",
-      origQty: "0.00001110500000000000",
-      executedQty: "0.00001110500000000000",
+      origQty: "0.0000111055583320",
+      executedQty: "0.0000111055583320",
       cummulativeQuoteQty: "1.00000000",
       type: "LIMIT"
     }
@@ -253,9 +255,10 @@ test("accepts a one-USDT notional after exact quote precision rounding, without 
   });
   assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.preflight.type, "LIMIT");
-  assert.equal(report.preflight.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
-  assert.equal(report.preflight.estimatedQuoteNotional, 1);
-  assert.ok(report.preflight.estimatedQuoteNotional <= 1);
+  assert.equal(report.preflight.quantity, "0.0000111055583320");
+  assert.ok(report.preflight.estimatedQuoteNotional >= 1);
+  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.maxQuoteNotional);
+  assert.ok(report.preflight.estimatedTotalDebitQuote <= 1.05);
   assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
@@ -287,7 +290,7 @@ test("handles high-precision venue tick and lot filters without floating-point r
   assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
-test("does not reserve commission from the user's one-USDT order amount", async () => {
+test("blocks when the account does not expose commission rates needed for an all-in balance cap", async () => {
   const {fetchImpl, calls} = makeFetch({
     account: validAccount({makerCommission: undefined, takerCommission: undefined})
   });
@@ -295,11 +298,9 @@ test("does not reserve commission from the user's one-USDT order amount", async 
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
-  assert.equal(report.result, "order_filled_reconciled");
-  assert.equal(report.preflight.quoteOrderQty, ONE_SHOT_QUOTE_AMOUNT);
-  assert.equal(report.preflight.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
-  assert.equal(report.preflight.commissionBps, null);
-  assert.equal(calls.filter(call => call.method === "POST").length, 1);
+  assert.equal(report.result, "preflight_blocked");
+  assert.equal(report.reason, "account_spot_commission_rate_unavailable");
+  assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 
 test("aborts before POST when free USDT is below the one-USDT cap", async () => {
