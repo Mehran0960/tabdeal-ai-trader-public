@@ -145,6 +145,9 @@ export async function runTabdealDynamicRotationHistoryCapture({
     fail("tabdeal_dynamic_history_universe_empty");
   }
 
+  const tabdealMarketBySymbol=new Map(tabdealInfo
+    .filter(row=>isRecord(row)&&typeof row.symbol==="string")
+    .map(row=>[String(row.symbol).toUpperCase(),row]));
   const candles=[];
   const books=[];
   const sourceErrors=[];
@@ -220,8 +223,9 @@ export async function runTabdealDynamicRotationHistoryCapture({
         symbol,limit:TABDEAL_DYNAMIC_HISTORY_POLICY.depthLimit
       }),fetchOptions);
       counts.tabdealDepthRequests++;
+      const localMarket=tabdealMarketBySymbol.get(symbol);
       const book=normalizeTabdealBook({
-        symbol,market,depth,capturedAtMs:now()
+        symbol,market:localMarket,depth,capturedAtMs:now()
       });
       books.push(book);
       if(book.status==="ok")counts.validTabdealBooks++;
