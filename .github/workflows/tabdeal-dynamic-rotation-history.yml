@@ -1,0 +1,72 @@
+name: Tabdeal Dynamic Spot Market History
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/tabdeal-dynamic-rotation-history.js"
+      - "src/tabdeal-rotation-universe.js"
+      - "scripts/collect-tabdeal-dynamic-rotation-history.mjs"
+      - "tests/tabdeal-dynamic-rotation-history.test.mjs"
+      - ".github/workflows/tabdeal-dynamic-rotation-history.yml"
+  schedule:
+    - cron: "40 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tabdeal-dynamic-spot-history
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax-check dynamic capture and run focused tests
+        run: |
+          node --check src/tabdeal-dynamic-rotation-history.js
+          node --check scripts/collect-tabdeal-dynamic-rotation-history.mjs
+          node --test tests/tabdeal-dynamic-rotation-history.test.mjs tests/tabdeal-rotation-universe.test.mjs
+      - name: Collect dynamic Spot USDT candles and fresh local Tabdeal books
+        run: |
+          node scripts/collect-tabdeal-dynamic-rotation-history.mjs \
+            --history-dir signal-history/data/international-market-history \
+            --state-dir signal-history/data/dynamic-tabdeal-rotation-universe \
+            --max-markets 200 \
+            --backfill-days 730 \
+            --output artifacts/tabdeal-dynamic-rotation-history/latest.json
+      - name: Upload sanitized capture report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-dynamic-rotation-history-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/tabdeal-dynamic-rotation-history/latest.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Commit append-only dynamic market history and universe index
+        if: success()
+        shell: bash
+        run: |
+          cd signal-history
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/international-market-history/ data/dynamic-tabdeal-rotation-universe/
+          if git diff --cached --quiet; then
+            echo "No new dynamic market history or universe changes."
+          else
+            git commit -m "data: append dynamic Tabdeal Spot market history"
+            git push origin signal-history
+          fi

@@ -13,7 +13,8 @@ All families may hold USDT cash when no eligible asset exists. None uses leverag
 ## Data and execution assumptions
 
 - Signal source: closed Binance Spot USDT 4h candles.
-- Universe: only symbols with sufficiently long synchronized contiguous history in the append-only market-history dataset. The report lists the actual symbol coverage; a dynamic listing scanner alone does not mean historical coverage exists.
+- Universe: the latest dynamic manifest of active Tabdeal/Binance cross-listed USDT Spot markets, ordered by Binance 24h quote turnover; only symbols with at least 2,000 stored closed 4h candles are eligible, and up to 20 highest-priority symbols are compared on a synchronized gap-free contiguous segment.
+- Dynamic history is backfilled up to 730 days and refreshed every four hours. The manifest has a 200-market first-stage cap; if more than 200 qualify, the report marks coverage incomplete and blocks Paper review.
 - Simulated fills: next 4h candle open after the signal candle closes. The signal candle close is never used as a fill.
 - Portfolio: long-only, at most 100% in one selected asset, otherwise cash.
 - Initial virtual capital: 1,000 USDT.
@@ -34,7 +35,7 @@ All families may hold USDT cash when no eligible asset exists. None uses leverag
 
 ## Known limitations
 
-- Existing historical coverage may be only five major symbols. The dynamic Tabdeal/Binance cross-listed universe from DYNAMIC-ROTATION-UNIVERSE.md is not yet a full historical candle collector.
+- The dynamic collector covers only active Tabdeal/Binance cross-listed USDT Spot markets, up to 200 by discovery liquidity. It does not cover IRT markets or Tabdeal-only markets.
 - Binance candle prices are not Tabdeal executable quotes.
 - Historical order-book replay, account-specific fees, fee rebates, partial fills and latency are not included in this screen.
 - The model is a research comparison, not a forecast or expected daily return.

@@ -20,6 +20,14 @@ The initial research safety cap is 200 markets. It is not a hidden truncation: i
 
 The 200-market ceiling is a practical first-stage bound for historical data and local-book collection. It should be raised only after measured API weight, runner time, data storage and local book coverage demonstrate that the full eligible intersection can be collected without gaps or rate-limit pressure.
 
+## Historical coverage
+
+The dynamic history collector uses public Binance Spot 4h candles for up to 730 days and fetches fresh local Tabdeal order-book snapshots for every selected market. It runs on a four-hour schedule, appends deduplicated monthly history, and checkpoints each symbol's last confirmed closed candle.
+
+The initial tournament pool is restricted to the highest-liquidity symbols in the manifest with at least 2,000 individually stored 4h candles. The tournament then requires synchronized, gap-free contiguous candles across the selected set and admits at most 20 symbols in one comparison. A listing is not eligible just because it exists; newly listed or incomplete symbols must accumulate adequate history first.
+
+This is a staged research universe, not a claim that every Tabdeal Spot pair is covered. Binance 24h quote turnover selects the research priority order; it is not used as Tabdeal executable liquidity.
+
 ## Boundaries
 
 - This is not a strategy and produces no buy/sell signal.
