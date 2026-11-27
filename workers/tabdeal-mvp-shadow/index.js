@@ -1147,22 +1147,30 @@ export default {
     return json({error: "not_found"}, 404);
   },
   async scheduled(event, env) {
-    // One lightweight public trade poll per minute builds exchange-local 1m candles.
-    // The existing 15m shadow scan reuses this same Worker and schedule.
+    // Keep the 1m public trade poll, 15m Shadow scan, and local Paper evaluation
+    // independent: a failed legacy scan must not skip forward-paper diagnostics.
     const tasks = [pollTabdealSpotTrades(env)];
     if (shouldRunTabdealQuarterHourScan(event)) {
       tasks.push(runScan(env));
     }
+    const paperTask = runTabdealLocalPaperCapture(env)
+      .then(result => {
+        console.info("TABDEAL_LOCAL_PAPER_EVALUATION " + JSON.stringify({
+          status: result.status,
+          signal: result.signal || "WAIT",
+          reason: result.reason || null,
+          candleCloseAt: result.indicators?.latestCandleCloseAt || null,
+          paperEntryRecorded: result.paper?.eligibleEntryRecorded === true,
+          evaluationCount: result.paper?.summary?.evaluation_count ?? null
+        }));
+      })
+      .catch(error => {
+        console.error("tabdeal_local_paper_capture_failed", String(error?.message || error));
+      });
+    tasks.push(paperTask);
     const outcomes = await Promise.allSettled(tasks);
     if (outcomes.some(item => item.status === "rejected")) {
       throw new Error("tabdeal_shadow_scheduled_task_failed");
-    }
-    // Exploratory forward-paper evaluation uses only local closed Tabdeal candles.
-    // It records signal observations and fixed-horizon mark-outs; it never submits orders.
-    try {
-      await runTabdealLocalPaperCapture(env);
-    } catch (error) {
-      console.error("tabdeal_local_paper_capture_failed", String(error?.message || error));
     }
   }
 };
