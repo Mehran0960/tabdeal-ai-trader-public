@@ -1,16 +1,41 @@
 import {createHmac} from "node:crypto";
 
 const BASE = "https://api1.tabdeal.org/r/api/v1";
-const ALLOWED_PATHS = new Set(["/account"]);
+const ALLOWED_OPEN_ORDER_SYMBOL = "PAXGUSDT";
+const READ_PATHS = new Set(["/account", "/openOrders"]);
 
-/** Build an authenticated GET request only; this helper cannot write to Tabdeal. */
-export function buildTabdealAccountReadRequest({apiKey, apiSecret, path="/account", timestamp=Date.now()}={}) {
+/** Build signed GET requests for two fixed, read-only endpoints only. */
+export function buildTabdealSignedReadRequest({
+  apiKey,
+  apiSecret,
+  path="/account",
+  params={},
+  timestamp=Date.now()
+}={}) {
   if (typeof apiKey !== "string" || !apiKey.trim()) throw new Error("tabdeal_api_key_missing");
   if (typeof apiSecret !== "string" || !apiSecret.trim()) throw new Error("tabdeal_api_secret_missing");
-  if (!ALLOWED_PATHS.has(path)) throw new Error("tabdeal_read_path_not_allowlisted");
+  if (!READ_PATHS.has(path)) throw new Error("tabdeal_read_path_not_allowlisted");
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    throw new Error("tabdeal_read_params_invalid");
+  }
   if (!Number.isSafeInteger(timestamp) || timestamp <= 0) throw new Error("tabdeal_timestamp_invalid");
 
-  const query = new URLSearchParams({timestamp:String(timestamp)});
+  let safeParams;
+  if (path === "/account") {
+    if (Object.keys(params).length !== 0) throw new Error("tabdeal_account_params_not_allowed");
+    safeParams = {};
+  } else {
+    if (Object.keys(params).length !== 1 || params.symbol !== ALLOWED_OPEN_ORDER_SYMBOL) {
+      throw new Error("tabdeal_open_orders_symbol_not_allowlisted");
+    }
+    safeParams = {symbol: ALLOWED_OPEN_ORDER_SYMBOL};
+  }
+
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(safeParams)) query.append(key, String(value));
+  query.append("timestamp", String(timestamp));
+  query.append("recvWindow", "5000");
+
   const unsigned = query.toString();
   const signature = createHmac("sha256", apiSecret).update(unsigned, "utf8").digest("hex");
   const url = new URL(BASE + path);
@@ -21,6 +46,7 @@ export function buildTabdealAccountReadRequest({apiKey, apiSecret, path="/accoun
     url:url.toString(),
     headers:Object.freeze({accept:"application/json","X-MBX-APIKEY":apiKey}),
     securityClass:"TRADE",
-    networkRequestSent:false
+    networkRequestSent:false,
+    endpoint:path
   });
 }

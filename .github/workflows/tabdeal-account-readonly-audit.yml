@@ -1,4 +1,4 @@
-name: Tabdeal signed account capability check (read-only)
+name: Tabdeal signed TRADE capability check (read-only)
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_read_only:
-        description: "Confirm one signed GET /account request only; no orders or fund movement"
+        description: "Confirm signed GET /account and GET /openOrders?symbol=PAXGUSDT only"
         required: true
         type: boolean
         default: false
@@ -34,9 +34,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify audit guard tests
+      - name: Verify read-only audit guard tests
         run: node --test tests/tabdeal-account-readonly-audit.test.mjs
-      - name: Perform one redacted signed GET /account check
+      - name: Check signed account and open-order read access only
         env:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
