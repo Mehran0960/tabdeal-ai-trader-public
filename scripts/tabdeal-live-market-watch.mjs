@@ -11,7 +11,8 @@ import {
   createTabdealLiveWatchState,
   updateTabdealLiveMinuteBar,
   evaluateTabdealRelativeWatch,
-  summarizeTabdealLiveWatch
+  summarizeTabdealLiveWatch,
+  resolveTabdealSocketAckWaiters
 } from "../src/tabdeal-live-market-watch.js";
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -109,6 +110,7 @@ async function main(){
   const observations=[];
   const persistResults=[];
   const ackWaiters=new Map();
+  let nextSubscriptionRequestId=1000;
   let activeSocket=null,stopping=false,connectionTimer=null,reconnectTimer=null;
   let reconnectDelayMs=1_000,lastEvaluationBucket=0,lastPersistAtMs=startedAtMs;
   let subscriptionErrors=[];
@@ -174,13 +176,12 @@ async function main(){
     stats.subscriptionAcceptedSymbols=0;
     stats.subscriptionRejectedSymbols=0;
     stats.subscriptionSetupIncomplete=false;
-    let nextId=1000;
     const queue=[...batches];
     let sent=0,accepted=0,rejectedSymbols=[];
     const setupDeadlineMs=Date.now()+5*60_000;
     while(queue.length&&!stopping&&ws===activeSocket&&ws.readyState===1&&Date.now()<setupDeadlineMs){
       const batch=queue.shift();
-      const id=nextId++;
+      const id=nextSubscriptionRequestId++;
       const message={...batch.message,id};
       const ackPromise=new Promise(resolve=>{
         const timer=setTimeout(()=>{
@@ -188,6 +189,7 @@ async function main(){
           resolve({ok:false,error:{id,code:"subscription_ack_timeout"}});
         },8_000);
         ackWaiters.set(id,{
+          ws,
           resolve:value=>{clearTimeout(timer);ackWaiters.delete(id);resolve(value);}
         });
       });
@@ -260,7 +262,7 @@ async function main(){
       sendSubscriptions(ws).catch(()=>scheduleReconnect("subscription_send_loop_failed"));
     });
     ws.addEventListener("message",async event=>{
-      if(stopping||ws!==activeSocket)return;
+      if(ws!==activeSocket)return;
       let raw=event?.data;
       if(typeof raw!=="string"){
         if(Buffer.isBuffer(raw))raw=raw.toString("utf8");
@@ -274,10 +276,11 @@ async function main(){
       if(closedHandled)return;
       closedHandled=true;
       clearTimeout(connectionTimer);
-      if(!stopping&&ws===activeSocket){
+      resolveTabdealSocketAckWaiters(ackWaiters,ws,"websocket_disconnected");
+      if(ws===activeSocket){
         activeSocket=null;
         try{ws.close();}catch{}
-        scheduleReconnect(reason);
+        if(!stopping)scheduleReconnect(reason);
       }
     };
     ws.addEventListener("error",()=>onClosed("websocket_error"));

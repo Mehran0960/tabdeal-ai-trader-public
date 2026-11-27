@@ -7,6 +7,7 @@ on:
       - "src/tabdeal-live-market-watch.js"
       - "scripts/tabdeal-live-market-watch.mjs"
       - "tests/tabdeal-live-market-watch.test.mjs"
+      - "tests/tabdeal-live-market-watch-irt.test.mjs"
       - ".github/workflows/tabdeal-live-market-watch.yml"
       - "package.json"
   schedule:
@@ -29,7 +30,7 @@ on:
       max_markets:
         description: Maximum active Spot markets to subscribe to
         required: true
-        default: "1000"
+        default: "1200"
         type: string
 
 permissions:
@@ -59,7 +60,8 @@ jobs:
         run: |
           node --check src/tabdeal-live-market-watch.js
           node --check scripts/tabdeal-live-market-watch.mjs
-          node --test tests/tabdeal-live-market-watch.test.mjs
+          node --check tests/tabdeal-live-market-watch-irt.test.mjs
+          node --test tests/tabdeal-live-market-watch.test.mjs tests/tabdeal-live-market-watch-irt.test.mjs
       - name: Select schedule or manual watch settings
         id: settings
         shell: bash
@@ -67,7 +69,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_MODE: ${{ inputs.mode || 'probe' }}
           INPUT_DURATION: ${{ inputs.duration_minutes || '3' }}
-          INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1000' }}
+          INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1200' }}
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
             echo "mode=continuous" >> "$GITHUB_OUTPUT"

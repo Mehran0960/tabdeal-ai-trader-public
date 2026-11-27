@@ -2,7 +2,7 @@
 
 ## Purpose and current boundary
 
-This module expands market observation beyond the earlier fixed five-symbol, 4h research screen. It dynamically discovers active Spot markets in exchangeInfo, watches supported USDT- and BTC-quoted markets through the official public Spot depth WebSocket, maintains short rolling minute bars, and reports provisional relative-value watch candidates.
+This module expands market observation beyond the earlier fixed five-symbol, 4h research screen. It dynamically discovers active Spot markets in exchangeInfo, watches USDT-quoted and IRT-quoted Spot markets in separate quote-unit groups, can normalize BTC-quoted markets to USDT when a matching BTCUSDT minute bar exists, maintains short rolling minute bars, and reports provisional relative-value watch candidates.
 
 It is a **market watcher and candidate scanner only**. It does not read account balances, use private credentials, create orders, cancel orders, transfer funds, or enable live trading.
 
@@ -11,11 +11,12 @@ It is a **market watcher and candidate scanner only**. It does not read account 
 At each run the watcher:
 - Reads public GET /exchangeInfo.
 - Admits only status=TRADING, isSpotTradingAllowed=true, and permissions containing SPOT.
-- Includes USDT and BTC quote assets only.
-- Excludes IRT because the quote/settlement denomination is not verified for this strategy.
-- Caps the internal selection at 1,000 markets; if the exchange returns more eligible markets, the report shows the omitted count.
-- Sorts USDT-quoted markets ahead of BTC-quoted markets.
-- Reports quote-asset counts, selected markets, and how many selected markets have the public LOT_SIZE, minimum-notional and PRICE_FILTER fields.
+- Includes USDT, BTC and IRT quote assets.
+- Excludes IRT when it appears as the base asset.
+- Treats IRT as an **unverified quote unit**. IRT markets are observed and compared only with other IRT-quoted assets; no IRT price or depth is converted to USDT, USD or TOMAN.
+- Caps the internal selection at 1,200 markets. The live exchangeInfo snapshot on 2026-11-27 contained 1,017 active Spot entries: 510 USDT-quoted and 507 IRT-quoted. The post-expansion probe must verify subscription coverage across this larger universe.
+- Sorts USDT-quoted markets ahead of BTC-quoted, then IRT-quoted markets.
+- Reports quote-asset counts, selected markets, omitted markets, quote-unit verification flags, and how many selected markets have public LOT_SIZE, minimum-notional and PRICE_FILTER fields.
 
 The subscription builder batches no more than 25 symbols per frame and waits for each acknowledgement. If a batch is rejected or times out, it recursively splits the batch down to individual symbols and records the rejected symbols. This is a conservative adaptive strategy, not a claim that Tabdeal documents a 25-symbol limit.
 
@@ -51,15 +52,17 @@ This is bounded rolling state, not a full tick archive. The repository branch re
 
 The initial watch logic is deliberately conservative and does not issue trade instructions. It:
 1. Converts BTC-quoted assets to a USDT-equivalent minute-price series only when a same-minute BTCUSDT bar exists.
-2. Prefers a direct USDT market when the same base asset has both USDT- and BTC-quoted markets.
-3. Requires at least 16 recent minute bars and a fully contiguous 15-minute window.
-4. Requires a recent order-book update, valid market filters, spread no greater than 35 bps, and at least 1,000 USDT equivalent top-five depth on each side.
-5. Compares 15-minute performance across assets using a cross-sectional median and robust median-absolute-deviation scale.
-6. Reports a provisional laggard only when relative underperformance is at least 100 bps, robust relative z-score is at most -2, and the last 1- and 5-minute returns have turned positive.
+2. Keeps USDT and IRT comparisons in distinct groups. Returns are dimensionless and can be compared within a common quote group even while the exact IRT unit is unresolved; absolute price levels are never joined across IRT and USDT.
+3. Prefers direct USDT markets when the same base asset also has a BTC-quoted market.
+4. Requires at least 16 recent minute bars and a fully contiguous 15-minute window.
+5. Requires a recent order-book update, valid market filters, and spread no greater than 35 bps.
+6. For USDT-equivalent groups, requires at least 1,000 USDT equivalent top-five depth on each side. For IRT, uses a conservative relative threshold of ten times that market's published minimum notional in IRT units; this is only an observation filter, not an execution-risk conversion.
+7. Compares 15-minute performance within each quote group using a cross-sectional median and robust median-absolute-deviation scale.
+8. Reports a provisional laggard only when relative underperformance is at least 100 bps, robust relative z-score is at most -2, and the last 1- and 5-minute returns have turned positive.
 
-The displayed source asset is the strongest recent liquid market in the watch universe; it is illustrative, not proof that the user's account currently owns that asset. The reported historical performance gap is **not a forecast of future return**. Candidate detection is a research heuristic, not evidence of mean reversion or expected profit.
+An IRT candidate is explicitly marked quoteUnitVerified=false. It cannot be promoted to a real trading instruction until Tabdeal confirms the unit and settlement conventions. The displayed source asset is the strongest recent liquid market within the same quote group; it is illustrative, not proof that the user's account currently owns that asset. The reported historical performance gap is **not a forecast of future return**. Candidate detection is a research heuristic, not evidence of mean reversion or expected profit.
 
-Cost reporting currently uses provisional assumptions of 40 bps fee and 10 bps slippage per order, plus half-spread estimates on the two legs. The actual Tabdeal fee tier, market impact and fills are not yet account-verified. A candidate remains tradeAuthorized=false.
+Cost reporting currently uses provisional assumptions of 40 bps fee and 10 bps slippage per order, plus half-spread estimates on the two legs. The actual Tabdeal fee tier, market impact and fills are not yet account-verified. A candidate always remains tradeAuthorized=false.
 
 ## GitHub Actions cadence and limits
 
@@ -67,16 +70,23 @@ The workflow schedule is every five minutes. A scheduled run is configured to ob
 
 This design aims for near-continuous observation within GitHub-hosted-runner constraints. GitHub scheduled workflows are best-effort: start times may be delayed, scheduled jobs may be dropped under platform load, and a gap is possible between runner sessions. It is not a guaranteed 24/7 daemon or hard real-time feed. The artifact records actual connection duration, received updates, symbols with no updates, subscription acknowledgements/rejections, lag, reconnects and checkpoint results so coverage can be measured rather than assumed.
 
+## Live probe results — 2026-11-27
+
+The first 3-minute probe, before IRT monitoring was enabled, selected all 510 USDT-quoted active Spot markets from 1,017 exchangeInfo entries. All 510 subscription requests were acknowledged, all 510 markets emitted valid messages, and 40,782 depth messages were received with a mean event lag of about 120 ms, maximum lag 532 ms, zero malformed messages and zero reconnects. At the final snapshot, 85 markets met the provisional spread and both-side depth filters (spread <=35 bps and top-five bid/ask depth >=1,000 USDT). No market emitted sequence/update-ID metadata, so snapshot/delta semantics remain unresolved. The 3-minute probe was too short to warm the 16-minute opportunity history, and no candidate was produced.
+
+After enabling IRT as a separate quote group, a new full-universe probe is required to validate live subscription coverage for all 1,017 entries. Do not assume the previous 510-symbol test proves the expanded IRT group is subscribed.
+
 ## Promotion and live-trading gates
 
 The previous five-asset 4h relative rotation strategy failed its untouched holdout: all three registered cost scenarios were net-negative and maximum drawdown exceeded 20%. It remains research-only. The continuous watch does not override that result.
 
 Before any actual swap is considered, separately require:
 1. Written confirmation from Tabdeal of Spot depth message semantics and the correct snapshot/recovery procedure.
-2. Account-specific maker/taker fees, minimum order amounts and permissions.
-3. A strategy independently validated on fresh out-of-sample and forward data after all costs.
-4. A separately audited two-leg execution path with order idempotency, fill reconciliation, partial-fill and second-leg failure handling, restart recovery, and a kill switch.
-5. A permitted and tested independent live SELL workflow. The current public repository has a read-only SELL preflight; the live SELL workflow is not active in this assistant environment.
-6. Explicit approval before a real-money pilot.
+2. Confirmed IRT quote/settlement denomination before any IRT order or cross-quote comparison.
+3. Account-specific maker/taker fees, minimum order amounts and permissions.
+4. A strategy independently validated on fresh out-of-sample and forward data after all costs.
+5. A separately audited two-leg execution path with order idempotency, fill reconciliation, partial-fill and second-leg failure handling, restart recovery, and a kill switch.
+6. A permitted and tested independent live SELL workflow. The current public repository has a read-only SELL preflight; the live SELL workflow is not active in this assistant environment.
+7. Explicit approval before a real-money pilot.
 
 Until all gates pass, real orders remain disabled and the watcher is not an auto-trader.
