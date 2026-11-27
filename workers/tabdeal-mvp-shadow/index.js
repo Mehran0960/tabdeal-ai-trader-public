@@ -527,30 +527,56 @@ export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowM
 }
 
 async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, continuityEpoch, lockToken, state) {
-  if (Number(state.recent_backfill_epoch) === Number(continuityEpoch)) return 0;
-  const backfill = buildTabdealRecentTradeCandles(rows, capturedAtMs, 240, continuityEpoch);
+  const fullWindow = buildTabdealRecentTradeCandles(rows, capturedAtMs, 240, continuityEpoch);
+  const backfill = fullWindow.status === "complete"
+    ? fullWindow
+    : buildTabdealRecentTradeCandles(rows, capturedAtMs, 60, continuityEpoch);
   if (backfill.status !== "complete") return 0;
 
-  const statements = backfill.candles.map(candle => env.DB.prepare(
-    "INSERT OR REPLACE INTO tabdeal_spot_candles_1m " +
-    "(symbol,minute_open_ms,open_price,high_price,low_price,close_price,base_volume,quote_volume," +
-    "trade_count,first_trade_time_ms,last_trade_time_ms,first_trade_id,last_trade_id," +
-    "continuity_epoch,coverage_status,is_closed,updated_at_ms) " +
-    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-  ).bind(
-    TRADE_STREAM_SYMBOL, candle.minute_open_ms, candle.open_price, candle.high_price,
-    candle.low_price, candle.close_price, candle.base_volume, candle.quote_volume,
-    candle.trade_count, candle.first_trade_time_ms, candle.last_trade_time_ms,
-    candle.first_trade_id, candle.last_trade_id, candle.continuity_epoch,
-    candle.coverage_status, 1, capturedAtMs
-  ));
-  statements.push(env.DB.prepare(
-    "UPDATE tabdeal_spot_trade_state SET recent_backfill_epoch=?, updated_at_ms=? " +
-    "WHERE symbol=? AND lease_token=?"
-  ).bind(continuityEpoch, capturedAtMs, TRADE_STREAM_SYMBOL, lockToken));
-  await env.DB.batch(statements);
-  state.recent_backfill_epoch = continuityEpoch;
-  return backfill.candles.length;
+  const existingRows = await env.DB.prepare(
+    "SELECT minute_open_ms,continuity_epoch,coverage_status FROM tabdeal_spot_candles_1m " +
+    "WHERE symbol=? AND minute_open_ms>=? AND minute_open_ms<?"
+  ).bind(TRADE_STREAM_SYMBOL, backfill.windowStartMs, backfill.windowEndMs).all();
+  const existingByMinute = new Map((existingRows.results || [])
+    .map(row => [Number(row.minute_open_ms), row]));
+  const newEpoch = Number(state.recent_backfill_epoch) !== Number(continuityEpoch);
+  const statements = [];
+
+  for (const candle of backfill.candles) {
+    const existing = existingByMinute.get(candle.minute_open_ms);
+    const existingIsUsable = existing &&
+      Number(existing.continuity_epoch) === Number(continuityEpoch) &&
+      ["complete", "no_trade"].includes(existing.coverage_status);
+    if (!newEpoch && existingIsUsable) continue;
+
+    statements.push(env.DB.prepare(
+      "INSERT OR REPLACE INTO tabdeal_spot_candles_1m " +
+      "(symbol,minute_open_ms,open_price,high_price,low_price,close_price,base_volume,quote_volume," +
+      "trade_count,first_trade_time_ms,last_trade_time_ms,first_trade_id,last_trade_id," +
+      "continuity_epoch,coverage_status,is_closed,updated_at_ms) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).bind(
+      TRADE_STREAM_SYMBOL, candle.minute_open_ms, candle.open_price, candle.high_price,
+      candle.low_price, candle.close_price, candle.base_volume, candle.quote_volume,
+      candle.trade_count, candle.first_trade_time_ms, candle.last_trade_time_ms,
+      candle.first_trade_id, candle.last_trade_id, candle.continuity_epoch,
+      candle.coverage_status, 1, capturedAtMs
+    ));
+  }
+
+  // Keep D1 batches small. The epoch marker is written only after all candle batches succeed,
+  // so a partial write is safe to retry on the next one-minute poll.
+  for (let i = 0; i < statements.length; i += 80) {
+    await env.DB.batch(statements.slice(i, i + 80));
+  }
+  if (newEpoch) {
+    await env.DB.prepare(
+      "UPDATE tabdeal_spot_trade_state SET recent_backfill_epoch=?, updated_at_ms=? " +
+      "WHERE symbol=? AND lease_token=?"
+    ).bind(continuityEpoch, capturedAtMs, TRADE_STREAM_SYMBOL, lockToken).run();
+    state.recent_backfill_epoch = continuityEpoch;
+  }
+  return statements.length;
 }
 
 export function mergeTabdealTradeCandle(existing, incoming) {
@@ -690,7 +716,7 @@ export async function pollTabdealSpotTrades(env, {
       const values = {
         last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
         last_trade_id: latest.id, last_trade_time_ms: latest.timeMs,
-        eligible_from_minute_ms: nextCompleteTradeMinute(capturedAtMs),
+        eligible_from_minute_ms: Math.floor(capturedAtMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS,
         continuity_epoch: Number(state.continuity_epoch || 0), gap_count: Number(state.gap_count || 0),
         last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "baseline_started",
         last_error_code: null, updated_at_ms: capturedAtMs
@@ -739,8 +765,10 @@ export async function pollTabdealSpotTrades(env, {
     }
 
     const age = capturedAtMs - latest.timeMs;
-    const eligibleFrom = Number(state.eligible_from_minute_ms || nextCompleteTradeMinute(capturedAtMs));
-    const eligibleTrades = newTrades.filter(trade => trade.timeMs >= eligibleFrom);
+    // The trade-ID cursor already removes duplicates. Retain every unseen trade, including
+    // late-in-minute trades that arrive just after a poll boundary.
+    const eligibleFrom = Number(state.eligible_from_minute_ms || 0);
+    const eligibleTrades = newTrades;
     const buckets = aggregateTabdealTradeCandles(eligibleTrades, Number(state.continuity_epoch || 0));
     const statements = [];
     for (const bucket of buckets) {
