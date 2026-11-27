@@ -8,7 +8,8 @@ This is a deliberately isolated, manually-triggered execution path for the owner
 - Pair: `BTCUSDT` only. BTCUSDT is the only symbol currently allowed by the existing Spot execution adapter and is selected for liquidity/execution reliability, not because the strategy has a BUY signal.
 - Side and type: one `BUY MARKET` order, using `quoteOrderQty=1.00000000` USDT.
 - Hard cap: 1.00000000 USDT quote notional. Symbol, side, type and amount are constants in the runner, not workflow inputs.
-- Trigger: GitHub Actions `workflow_dispatch` from `main`, with the boolean confirmation explicitly checked.
+- Trigger: the user-authorized one-time activation marker pushed to `main` (`ops/tabdeal-one-shot-buy.activate`); the workflow also retains a guarded manual-dispatch path.
+- Idempotency: before the only order POST, the runner atomically creates the permanent Git ref `refs/tags/tabdeal-one-shot-1usdt-20261127`. An existing tag or an ambiguous tag-creation result blocks the order; reruns cannot spend again.
 - Credentials: existing repository Actions secrets `TABDEAL_API_KEY` and `TABDEAL_API_SECRET`; never print or persist their values.
 
 ## Pre-submit hard stops
@@ -30,6 +31,7 @@ Any missing, malformed, stale-looking, or ambiguous response fails closed. A min
 - The unique client order ID is deterministic for the GitHub workflow run. Re-running the same workflow run reconciles the prior ID and does not create a duplicate order.
 - A 4xx response is reported as rejected without retry.
 - A timeout, network failure or 5xx triggers only one read-only lookup by the same client order ID. If the state remains unclear, execution halts; no second POST is sent.
+- The permanent one-shot lock is intentionally fail-closed. If execution reaches the lock but cannot submit, the authorization is considered consumed until an operator deliberately reviews and resets the lock.
 - The workflow never submits a SELL, cancellation, withdrawal or transfer and never turns on recurring/live strategy automation.
 - Actual order ID, status, filled BTC quantity, quote quantity and reported fill commissions are included in the Actions summary. Never infer a fill merely from a successful HTTP response.
 
