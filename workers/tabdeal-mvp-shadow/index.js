@@ -332,7 +332,7 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
 
 
 const TRADE_STREAM_SYMBOL = "BTCUSDT";
-export const TABDEAL_PAPER_WATCHLIST = Object.freeze(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
+export const TABDEAL_PAPER_WATCHLIST = Object.freeze(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "PAXGUSDT"]);
 const TRADE_STREAM_LIMIT = 1000;
 const TRADE_STREAM_MAX_AGE_MS = 180_000;
 const TRADE_STREAM_LEASE_MS = 45_000;
