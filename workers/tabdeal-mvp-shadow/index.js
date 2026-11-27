@@ -288,24 +288,6 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/_internal/scan-once") {
-      if (request.method !== "POST") return json({error: "method_not_allowed"}, 405);
-      // One atomic D1 claim permits exactly one bootstrap request. After the
-      // smoke test, this route is removed from the deployed Worker.
-      const claim = await env.DB.prepare(
-        "INSERT OR IGNORE INTO shadow_bootstrap_once (id,claimed_at) VALUES (1,?)"
-      ).bind(new Date().toISOString()).run();
-      if (Number(claim.meta?.changes) !== 1) {
-        return json({error: "bootstrap_scan_already_used"}, 409);
-      }
-      try {
-        return json(await runScan(env));
-      } catch {
-        await env.DB.prepare("DELETE FROM shadow_bootstrap_once WHERE id=1").run().catch(() => {});
-        console.error("shadow_bootstrap_scan_failed");
-        return json({error: "shadow_scan_failed"}, 500);
-      }
-    }
     if (request.method !== "GET") return json({error: "method_not_allowed"}, 405);
     if (url.pathname === "/health") {
       const row = await env.DB.prepare(
