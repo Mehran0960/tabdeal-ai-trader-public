@@ -127,6 +127,18 @@ export function discoverTabdealSpotUniverse(payload,{
   };
 }
 
+
+export function resolveTabdealSocketAckWaiters(waiters,socket,reason="websocket_disconnected"){
+  if(!(waiters instanceof Map)||!socket)return 0;
+  let resolved=0;
+  for(const [id,waiter] of [...waiters.entries()]){
+    if(waiter?.ws!==socket||typeof waiter.resolve!=="function")continue;
+    waiter.resolve({ok:false,error:{id,code:String(reason)}});
+    resolved++;
+  }
+  return resolved;
+}
+
 export function buildTabdealSubscriptionBatches(symbols,{
   batchSize=TABDEAL_LIVE_WATCH_POLICY.subscriptionBatchSize,
   firstId=1
