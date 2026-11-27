@@ -237,7 +237,8 @@ test("local forward-paper capture records WAIT without account access or exchang
 
 
 
-test("forward paper markouts ignore carry-forward no-trade target candles",async()=>{
+test("forward paper markouts anchor to actual entry time and skip no-trade exits",async()=>{
+  const base=1_800_000_000_000;
   const writes=[];
   const db={
     prepare(sql){
@@ -245,23 +246,53 @@ test("forward paper markouts ignore carry-forward no-trade target candles",async
         bind(...params){writes.push({sql,params});return statement;},
         async all(){return {results:[{
           symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
-          candle_open_ms:1_800_000_000_000,entry_price:100,entry_spread_bps:10
-        }]}}
+          candle_open_ms:base,entry_price:100,entry_spread_bps:10,
+          entry_observed_at_ms:base+90_000
+        }]}};
       };
       return statement;
     },
     async batch(items){writes.push(...items);return [];}
   };
-  const close=async coverageStatus=>updateTabdealLocalPaperMarkouts({DB:db},[{
-    minuteOpenMs:1_800_000_000_000+5*60_000,close:102,
-    coverageStatus,tradeCount:coverageStatus==="complete"?2:0
-  }],1_800_000_000_000+6*60_000);
-  await close("no_trade");
+  const candles=[
+    // This close is after signal-candle open + 5m, but before entry-observed + 5m.
+    {minuteOpenMs:base+300_000,close:101,coverageStatus:"complete",tradeCount:1},
+    // The first bar after the correct target has no actual trade and cannot be used.
+    {minuteOpenMs:base+360_000,close:101,coverageStatus:"no_trade",tradeCount:0},
+    // Use the first real-trade close within the allowed 3m execution-lag window.
+    {minuteOpenMs:base+420_000,close:102,coverageStatus:"complete",tradeCount:2}
+  ];
+  const result=await updateTabdealLocalPaperMarkouts({DB:db},candles,base+500_000);
+  assert.equal(result.resolvedMarkouts,1);
+  const update=writes.find(row=>row.sql?.includes("markout_5m_candle_open_ms"));
+  assert.ok(update);
+  assert.equal(update.params[0],base+420_000);
+  assert.equal(update.params[1],390_000);
+  assert.equal(update.params[2],102);
+});
+
+test("forward paper markout stays unresolved when no real trade occurs within the allowed delay",async()=>{
+  const base=1_800_000_000_000;
+  const writes=[];
+  const db={
+    prepare(sql){
+      const statement={
+        bind(...params){writes.push({sql,params});return statement;},
+        async all(){return {results:[{
+          symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
+          candle_open_ms:base,entry_price:100,entry_spread_bps:10,
+          entry_observed_at_ms:base+90_000
+        }]}};
+      };
+      return statement;
+    },
+    async batch(items){writes.push(...items);return [];}
+  };
+  const result=await updateTabdealLocalPaperMarkouts({DB:db},[
+    {minuteOpenMs:base+360_000,close:100,coverageStatus:"no_trade",tradeCount:0},
+    {minuteOpenMs:base+420_000,close:100,coverageStatus:"no_trade",tradeCount:0},
+    {minuteOpenMs:base+480_000,close:100,coverageStatus:"no_trade",tradeCount:0}
+  ],base+600_000);
+  assert.equal(result.resolvedMarkouts,0);
   assert.equal(writes.length,1);
-  assert.equal(writes[0].sql.includes("SELECT symbol"),true);
-  writes.length=0;
-  await close("complete");
-  assert.equal(writes.length,3);
-  assert.equal(writes.slice(1).length,2);
-  assert.ok(writes.some(row=>row.sql?.includes("markout_5m_close_price")));
 });
