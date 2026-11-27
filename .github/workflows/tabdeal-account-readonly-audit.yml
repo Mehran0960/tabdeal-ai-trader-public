@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_read_only:
-        description: "Confirm signed GET /account and GET /openOrders?symbol=PAXGUSDT only"
+        description: "Confirm GET /account, GET /openOrders?symbol=PAXGUSDT, and GET /order using a synthetic ID only"
         required: true
         type: boolean
         default: false
@@ -34,9 +34,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify read-only audit guard tests
+      - name: Verify strict read-only audit guard tests
         run: node --test tests/tabdeal-account-readonly-audit.test.mjs
-      - name: Check signed account and open-order read access only
+      - name: Check signed account and order-read access only
         env:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
