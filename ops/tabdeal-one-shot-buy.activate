@@ -14,3 +14,9 @@ Automatic retry: the previous price-capped LIMIT attempt stopped before claiming
 Automatic retry: the 1 USDT order amount is now used in full, without subtracting commission from the quote amount. Commission is captured from the exchange fill response. The preflight still strictly enforces the calculated quote notional <= 1 USDT and the current exchange LOT_SIZE, PRICE_FILTER, MIN_NOTIONAL, spread and visible-depth checks.
 
 Automatic retry: Tabdeal's quote-input UI behavior is now matched by rounding the BTC quantity upward to the exact LOT_SIZE step. The requested quote input remains 1.00000000 USDT; any step-rounding excess and estimated commission must remain within the current free USDT balance.
+
+
+Second explicitly user-approved one-shot test activation (2026-11-27):
+Unique client order ID: t1shot-btcusdt-20261127-02
+Unique permanent lock ref: refs/tags/tabdeal-one-shot-1usdt-20261127-02
+The independently locked second execution may submit at most one BTCUSDT Spot BUY with a 1.00000000 USDT quote input, only if live preflight passes. No sell, retry, cancellation, withdrawal or transfer is authorized.
