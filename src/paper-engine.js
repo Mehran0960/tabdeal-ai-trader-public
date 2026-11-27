@@ -166,8 +166,12 @@ export function createPaperEntryPlan({
     return levels.filter(([price])=>side==="bid"?price>=mid*(1-bound):price<=mid*(1+bound))
       .reduce((sum,[price,amount])=>sum+price*amount,0);
   };
-  const depth=depth25(bids,"bid")+depth25(asks,"ask");
-  if(depth<PAPER_LIMITS.depth25Minimum[quoteUnit])return block("depth25_gate_failed");
+  const bidDepth25=depth25(bids,"bid");
+  const askDepth25=depth25(asks,"ask");
+  const depth=bidDepth25+askDepth25;
+  const minimumDepth=PAPER_LIMITS.depth25Minimum[quoteUnit];
+  // Require executable liquidity independently on both sides; aggregate depth can hide a thin opposite side.
+  if(bidDepth25<minimumDepth||askDepth25<minimumDepth)return block("two_sided_depth_gate_failed");
   const atr=Number(analysis.marketState?.atr14);
   const entryReference=asks[0][0];
   const stop=entryReference-PAPER_LIMITS.stopAtrMultiple*atr;
@@ -206,7 +210,7 @@ export function createPaperEntryPlan({
     symbol,quoteUnit,strategy:candidate.strategy,resolution:String(candidate.resolution),
     candleTime:Number(analysis.lastCandle.time),requestedQuantity:riskPlan.quantity,
     filledQuantity:fill.filledQuantity,avgFillPrice:fill.avgFillPrice,
-    quoteNotional:notional,feePaid:fee,spreadBps,depth25:depth,bookAgeMs:bookAge,
+    quoteNotional:notional,feePaid:fee,spreadBps,depth25:depth,bidDepth25,askDepth25,bookAgeMs:bookAge,
     stopPrice,takeProfitPrice,fillStatus:fill.status,fills:fill.fills,
     riskPlan,liveTradingEnabled:false,exchangeOrderCreated:false
   };
