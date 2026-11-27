@@ -246,7 +246,7 @@ test("forward paper markouts ignore carry-forward no-trade target candles",async
         async all(){return {results:[{
           symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
           candle_open_ms:1_800_000_000_000,entry_price:100,entry_spread_bps:10
-        }]}};
+        }]}}
       };
       return statement;
     },
