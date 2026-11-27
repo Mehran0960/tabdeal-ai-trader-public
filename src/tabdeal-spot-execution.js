@@ -171,8 +171,11 @@ export async function buildTabdealOcoSellOrderRequest({
         Number(triggerPrice) > Number(stopLimit))) {
     fail("tabdeal_oco_sell_price_relationship_invalid");
   }
-  const ids = [listClientOrderId, limitClientOrderId, stopClientOrderId].map(String);
-  if (ids.some(id => !CLIENT_ORDER_ID.test(id))) fail("tabdeal_oco_client_order_id_invalid");
+  const rawIds = [listClientOrderId, limitClientOrderId, stopClientOrderId];
+  if (rawIds.some(id => typeof id !== "string" || !CLIENT_ORDER_ID.test(id))) {
+    fail("tabdeal_oco_client_order_id_invalid");
+  }
+  const ids = rawIds;
   if (new Set(ids).size !== ids.length) fail("tabdeal_oco_client_order_ids_must_be_unique");
   return signedRequest({
     method: "POST",
