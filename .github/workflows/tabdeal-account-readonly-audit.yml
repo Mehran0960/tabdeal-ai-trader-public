@@ -36,7 +36,7 @@ jobs:
           node-version: 22
       - name: Verify strict read-only audit guard tests
         run: node --test tests/tabdeal-account-readonly-audit.test.mjs
-      - name: Check account and open-order reads; report order lookup separately
+      - name: Check account, open orders and documented order-not-found response
         env:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}

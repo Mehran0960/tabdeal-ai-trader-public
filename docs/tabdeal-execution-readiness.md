@@ -43,3 +43,20 @@ The current execution client is deliberately fail-closed by default:
 ## Current operating decision
 
 Paper/Shadow only. The production Worker remains separate from the authenticated API audit. Live trading remains disabled; the kill switch remains active. A future live pilot requires a separate explicit owner approval after all blockers above are closed. This document does not authorize an order.
+
+
+## Forward Paper capture snapshot
+
+Observed on 2026-11-27 around 11:59 UTC, from the production D1 database:
+
+| Symbol | Trades in latest 60m | No-trade minutes | Latest Paper decision |
+|---|---:|---:|---|
+| BTCUSDT | 35 | 38 / 60 | WAIT — trend alignment not confirmed |
+| ETHUSDT | 5 | 56 / 60 | WAIT — insufficient activity/coverage |
+| PAXGUSDT | 9 | 54 / 60 | WAIT — insufficient activity/coverage; latest trade was stale |
+| SOLUSDT | 11 | 51 / 60 | WAIT — insufficient activity/coverage |
+| XRPUSDT | 24 | 46 / 60 | WAIT — no-trade ratio above the registered gate |
+
+At that snapshot, all five symbols had zero Paper-eligible entries, zero completed markouts, and zero exchange orders. BTC data passed the local data-quality gate but did not produce a buy candidate. The other four symbols failed the registered activity/coverage gate.
+
+The collector has a one-minute Cloudflare Cron schedule and maintains up to 90 days of local candles. The current history is only about 6–8 hours old, so it is too early to claim strategy profitability or stable out-of-sample performance. Accumulating more observations does not relax any entry gate.
