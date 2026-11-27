@@ -726,7 +726,7 @@ export async function pollTabdealSpotTrades(env, {
         last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "no_new_trades",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
     }
 
@@ -740,7 +740,7 @@ export async function pollTabdealSpotTrades(env, {
         last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "baseline_started",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       const backfilledBars = await persistTabdealRecentTradeBackfill(
         env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
       );
@@ -757,7 +757,7 @@ export async function pollTabdealSpotTrades(env, {
         gap_count: Number(state.gap_count || 0) + 1, last_gap_at_ms: capturedAtMs,
         last_poll_status: coverage.status, last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       const backfilledBars = await persistTabdealRecentTradeBackfill(
         env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
       );
@@ -776,7 +776,7 @@ export async function pollTabdealSpotTrades(env, {
         last_poll_status: age > TRADE_STREAM_MAX_AGE_MS ? "stale_latest_trade" : "no_new_trades",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       const backfilledBars = await persistTabdealRecentTradeBackfill(
         env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
       );
@@ -832,7 +832,7 @@ export async function pollTabdealSpotTrades(env, {
     ));
     await env.DB.batch(statements);
     const backfilledBars = await persistTabdealRecentTradeBackfill(
-      env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+      env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
     );
 
     if (new Date(capturedAtMs).getUTCHours() === 3 && new Date(capturedAtMs).getUTCMinutes() === 0) {
