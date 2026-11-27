@@ -224,6 +224,23 @@ export function createTabdealSpotExecutionClient({
           intent.riskPlan.assumptions?.shorting !== false) {
         fail("tabdeal_risk_plan_invalid_or_over_cap");
       }
+      let priorOrder;
+      try {
+        priorOrder = await getOrder({
+          symbol: intent.symbol,
+          clientOrderId: intent.clientOrderId
+        });
+      } catch {
+        return {
+          status: "pre_submit_lookup_failed_halt",
+          clientOrderId: String(intent.clientOrderId),
+          automaticRetry: false
+        };
+      }
+      if (priorOrder) {
+        return {status: "existing_client_order_reconciled", order: priorOrder, automaticRetry: false};
+      }
+
       const request = await buildTabdealLimitOrderRequest({
         ...intent, apiKey, apiSecret, allowedSymbols, receiveWindowMs
       });
