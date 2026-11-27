@@ -141,8 +141,8 @@ export function sizeWithinOneUsdt(info, depth) {
   const limitPrice = unitsDecimal(limitPxUnits, p);
   const limitPriceNumber = Number(limitPrice);
   const minPxUnits = priceFilter.minPrice ? decimalUnits(priceFilter.minPrice, p) : 0n;
-  const maxPxUnits = priceFilter.maxPrice ? decimalUnits(priceFilter.maxPrice, p) : null;
-  if (limitPxUnits < minPxUnits || (maxPxUnits !== null && limitPxUnits > maxPxUnits)) {
+  const maxPriceFilterUnits = priceFilter.maxPrice ? decimalUnits(priceFilter.maxPrice, p) : null;
+  if (limitPxUnits < minPxUnits || (maxPriceFilterUnits !== null && limitPxUnits > maxPriceFilterUnits)) {
     return {ok:false,reason:"price_filter"};
   }
   const stepUnits = decimalUnits(lot.stepSize, q);
