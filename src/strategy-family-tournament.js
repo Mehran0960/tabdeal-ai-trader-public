@@ -325,7 +325,7 @@ function simulateFamily({strategyId,history,features,splitIndex,cost,initialCapi
   const feeRate=cost.feeBpsPerOrder/10_000,slippageRate=cost.slippageBpsPerOrder/10_000;
   let cash=initialCapital,position=null,heldBars=0;
   let orderCount=0,switchCount=0,entryCount=0,exitCount=0,exposedBars=0;
-  const equityCurve=[initialCapital],tradeEvents=[];
+  const equityCurve=[initialCapital],riskCurve=[initialCapital],tradeEvents=[];
   for(let i=startIndex;i<lastIndex;i++){
     const decision=chooseTarget(strategyId,features[i],position?.symbol||null,heldBars);
     const target=decision.target,executionIndex=i+1,priorSymbol=position?.symbol||null;
@@ -346,7 +346,12 @@ function simulateFamily({strategyId,history,features,splitIndex,cost,initialCapi
       heldBars=0;
     }else if(position)heldBars++;
     if(position)exposedBars++;
-    equityCurve.push(portfolioEquity(cash,position,candlesBySymbol,executionIndex));
+    const closeEquity=portfolioEquity(cash,position,candlesBySymbol,executionIndex);
+    equityCurve.push(closeEquity);
+    const intrabarLowEquity=position
+      ? Math.min(closeEquity,position.quantity*candlesBySymbol[position.symbol][executionIndex].low)
+      : cash;
+    riskCurve.push(intrabarLowEquity);
   }
   let finalEquity=cash;
   if(position){
@@ -355,7 +360,8 @@ function simulateFamily({strategyId,history,features,splitIndex,cost,initialCapi
     orderCount++;exitCount++;
   }
   equityCurve[equityCurve.length-1]=finalEquity;
-  const maxDrawdownPct=maximumDrawdown(equityCurve),totalReturnPct=(finalEquity/initialCapital-1)*100;
+  riskCurve[riskCurve.length-1]=Math.min(riskCurve.at(-1),finalEquity);
+  const maxDrawdownPct=maximumDrawdown(riskCurve),totalReturnPct=(finalEquity/initialCapital-1)*100;
   const elapsedMs=candlesBySymbol[symbols[0]][lastIndex].time-
     candlesBySymbol[symbols[0]][startIndex].time+INTERVAL_MS;
   const years=Math.max(elapsedMs/(365.25*24*60*60*1000),1/365.25);
