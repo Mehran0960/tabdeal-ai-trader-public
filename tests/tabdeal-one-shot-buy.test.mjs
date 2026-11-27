@@ -214,6 +214,29 @@ test("matches the exchange UI: 1 USDT quote input rounds BTC quantity up to the 
   assert.equal(params.get("timeInForce"), null);
 });
 
+test("blocks if the live free balance cannot cover the UI-style rounded quantity plus fee", async () => {
+  const {fetchImpl, calls} = makeFetch({
+    exchangeInfo: validLimitExchangeInfo(),
+    depth: validDepth({
+      bids: [["61400.00", "1"]],
+      asks: [["61463.50", "2"]]
+    }),
+    account: validAccount({balances: [{asset: "USDT", free: "1.04000000", freeze: "0"}]})
+  });
+  let lockAttempts = 0;
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => {
+      lockAttempts += 1;
+      return {claimed: true, result: "test_lock_claimed"};
+    },
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "preflight_blocked");
+  assert.equal(report.reason, "rounded_quantity_exceeds_available_balance_after_fees");
+  assert.equal(calls.filter(call => call.method === "POST").length, 0);
+  assert.equal(lockAttempts, 0);
+});
+
 test("blocks when lot-step round-up plus fee would exceed the available 1.05 USDT", async () => {
   const {fetchImpl, calls} = makeFetch({
     exchangeInfo: validLimitExchangeInfo({minNotional: "1.05"}),
