@@ -6,6 +6,8 @@ import {runInternationalStrategyResearch} from "../src/international-strategy-re
 function arg(name,fallback){const i=process.argv.indexOf(name);return i>=0?process.argv[i+1]??fallback:fallback;}
 const historyDir=arg("--history-dir",path.join("signal-history","data","international-market-history"));
 const outputPath=arg("--output",path.join("artifacts","international-strategy-research","latest.json"));
+const intervals=[...new Set(arg("--intervals","4h").split(",").map(value=>value.trim()).filter(Boolean))];
+if(!intervals.length)throw new Error("international_research_intervals_required");
 const files=(await readdir(historyDir)).filter(name=>/^\d{4}-\d{2}\.jsonl$/.test(name)).sort();
 if(!files.length)throw new Error("international_research_history_month_files_missing");
 const rows=[];
@@ -17,7 +19,7 @@ for(const name of files){
     catch{throw new Error("international_research_jsonl_corrupt_"+name+"_line_"+(index+1));}
   }
 }
-const report=runInternationalStrategyResearch({rows});
+const report=runInternationalStrategyResearch({rows,intervals});
 await mkdir(path.dirname(outputPath),{recursive:true});
 await writeFile(outputPath,JSON.stringify(report,null,2)+"\n","utf8");
 const summaries=report.results.filter(row=>row.oos.available).sort((a,b)=>

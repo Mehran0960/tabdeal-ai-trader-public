@@ -10,7 +10,7 @@ on:
       - "package.json"
       - ".github/workflows/international-strategy-research.yml"
   schedule:
-    - cron: "12 * * * *"
+    - cron: "12 2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -37,8 +37,8 @@ jobs:
         run: |
           npm run check
           npm test
-      - name: Run fixed-cost multi-asset OOS and untouched-holdout research
-        run: node scripts/international-strategy-research.mjs
+      - name: Run lean 4h-only fixed-cost OOS and untouched-holdout screen
+        run: node scripts/international-strategy-research.mjs --intervals 4h
       - name: Upload research report
         uses: actions/upload-artifact@v4
         with:
