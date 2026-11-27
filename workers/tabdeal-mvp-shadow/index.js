@@ -539,7 +539,9 @@ async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, contin
   ).bind(TRADE_STREAM_SYMBOL, backfill.windowStartMs, backfill.windowEndMs).all();
   const existingByMinute = new Map((existingRows.results || [])
     .map(row => [Number(row.minute_open_ms), row]));
-  const newEpoch = Number(state.recent_backfill_epoch) !== Number(continuityEpoch);
+  const newEpoch = state.recent_backfill_epoch === null ||
+    state.recent_backfill_epoch === undefined ||
+    Number(state.recent_backfill_epoch) !== Number(continuityEpoch);
   const statements = [];
 
   for (const candle of backfill.candles) {
@@ -644,7 +646,9 @@ export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.n
     requiredForCaptureReady: 60, requiredForFourHourHistory: 240,
     captureReady, fourHourHistoryReady: statusGood && sourceFresh && consecutiveClosedMinutes >= 240,
     candleInterval: "1m", recentWindowBackfillSupported: true,
-    recentBackfillCompleted: Number(state.recent_backfill_epoch) === Number(state.continuity_epoch),
+    recentBackfillCompleted: state.recent_backfill_epoch !== null &&
+      state.recent_backfill_epoch !== undefined &&
+      Number(state.recent_backfill_epoch) === Number(state.continuity_epoch),
     historicalBackfillAvailable: false, liveTradingEnabled: false
   };
 }
