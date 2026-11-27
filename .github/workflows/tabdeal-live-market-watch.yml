@@ -29,7 +29,7 @@ on:
       max_markets:
         description: Maximum active Spot markets to subscribe to
         required: true
-        default: "1000"
+        default: "1200"
         type: string
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_MODE: ${{ inputs.mode || 'probe' }}
           INPUT_DURATION: ${{ inputs.duration_minutes || '3' }}
-          INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1000' }}
+          INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1200' }}
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
             echo "mode=continuous" >> "$GITHUB_OUTPUT"
