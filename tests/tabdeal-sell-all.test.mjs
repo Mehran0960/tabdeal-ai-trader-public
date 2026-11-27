@@ -218,6 +218,63 @@ test("live sell performs at most one POST and reports the exchange's fill state"
   assert.equal(calls.filter(call => call.method === "POST" && new URL(call.url).pathname.endsWith("/order")).length, 1);
 });
 
+
+test("allows a new SELL on a later workflow run while blocking a replay of the same run", async () => {
+  const claimedRuns = new Set();
+  const lockCalls = [];
+  const claimLock = async ({runId}) => {
+    lockCalls.push(String(runId));
+    if (claimedRuns.has(String(runId))) {
+      return {claimed: false, result: "sell_execution_already_claimed"};
+    }
+    claimedRuns.add(String(runId));
+    return {claimed: true, result: "test_lock_claimed"};
+  };
+
+  async function execute(runId) {
+    const {fetchImpl, calls} = readOnlyFetchMock({
+      postResponse: async (_url, options) => {
+        const params = new URLSearchParams(options.body);
+        return jsonResponse({
+          orderId: 456,
+          clientOrderId: params.get("newClientOrderId"),
+          symbol: "BTCUSDT",
+          side: "SELL",
+          type: "LIMIT",
+          status: "FILLED",
+          origQty: params.get("quantity"),
+          executedQty: params.get("quantity"),
+          cummulativeQuoteQty: "1.01900000"
+        });
+      }
+    });
+    const report = await runTabdealSellAllBtc({
+      apiKey: "test-key", apiSecret: "test-secret",
+      mode: "live_sell", confirmLiveSell: true,
+      confirmedQuantity: "0.00001700", runId,
+      repository: "Mehran0960/tabdeal-ai-trader-public",
+      commitSha: "a".repeat(40), githubToken: "test-github-token",
+      fetchImpl, claimLock
+    });
+    return {report, calls};
+  }
+
+  const first = await execute("123");
+  const second = await execute("124");
+  const sameRunReplay = await execute("123");
+
+  assert.equal(first.report.result, "sell_filled");
+  assert.equal(second.report.result, "sell_filled");
+  assert.notEqual(first.report.clientOrderId, second.report.clientOrderId);
+  assert.equal(first.report.clientOrderId, "sellbtc-123");
+  assert.equal(second.report.clientOrderId, "sellbtc-124");
+  assert.equal(sameRunReplay.report.result, "sell_execution_already_claimed");
+  assert.equal(first.calls.filter(call => call.method === "POST").length, 1);
+  assert.equal(second.calls.filter(call => call.method === "POST").length, 1);
+  assert.equal(sameRunReplay.calls.filter(call => call.method === "POST").length, 0);
+  assert.deepEqual(lockCalls, ["123", "124", "123"]);
+});
+
 test("live sell halts without duplicate POST after an uncertain submission", async () => {
   const {fetchImpl: baseFetch, calls} = readOnlyFetchMock({
     postResponse: async () => { throw new Error("simulated network timeout"); }
