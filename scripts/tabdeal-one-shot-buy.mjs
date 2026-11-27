@@ -619,7 +619,8 @@ async function main() {
       "## Tabdeal one-shot Spot buy\n\n" +
       "- Result: **" + report.result + "**\n" +
       "- Symbol: " + ONE_SHOT_SYMBOL + "\n" +
-      "- Quote-amount cap: 1.00000000 USDT\n" +
+      "- Requested quote input: 1.00000000 USDT\n" +
+      "- All-in debit ceiling: " + (report.preflight?.maxTotalDebitQuote ?? "not confirmed") + " USDT\n" +
       "- Order submitted: " + String(report.orderSubmitted) + "\n" +
       "- Automatic retry: no\n" +
       "- Sell, cancel, withdrawal or transfer: not attempted\n" +
