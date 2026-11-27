@@ -1,8 +1,8 @@
 # Tabdeal AI Trader — Public Research Core
 
-> **Current automated status — 2026-11-26:** the four-horizon research pipeline (15m/1h/4h/1d) now has a complete backfill and a successful final report. The report read 124,639 historical records and selected 95,330 closed Binance Spot USDT candles across BTC/ETH/SOL/XRP/DOGE; 19 of 20 asset/timeframe profiles were research-ready (daily SOL history remains short). Two historically early-closed daily candles were explicitly excluded and their gap preserved. **180 hypotheses produced 171 available OOS results, 32 net-positive cases, and zero candidates passing all gates. Paper promotion and live trading remain disabled.** [Final report](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45884191273) · [JSON artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45884191273/artifacts/15148638461) · [CI 134/134](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45884191277).
+> **Lean MVP direction — 2026-11-27:** the active path is being reduced to Tabdeal Spot BTCUSDT, 4h closed Binance Spot candles for signal context, and a fresh Tabdeal-local Spot book for execution checks. Broad research is reduced to one daily 4h screen; the 15m/1h/daily research profiles are no longer on the active schedule. The report read 124,639 historical records and selected 95,330 closed Binance Spot USDT candles across BTC/ETH/SOL/XRP/DOGE; 19 of 20 asset/timeframe profiles were research-ready (daily SOL history remains short). Two historically early-closed daily candles were explicitly excluded and their gap preserved. **180 hypotheses produced 171 available OOS results, 32 net-positive cases, and zero candidates passing all gates. Paper promotion and live trading remain disabled.** [Final report](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45884191273) · [JSON artifact](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45884191273/artifacts/15148638461) · [CI 134/134](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45884191277).
 
-This repository is the sanitized, public research companion to the private operations repository [nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader).
+This repository is the public source for credential-free Tabdeal research and the fail-closed Spot execution adapter. Private credentials and Cloudflare bindings remain outside GitHub source.
 
 
 ## Relationship to the private core project
@@ -23,10 +23,10 @@ The active research lane now collects international public market history and sc
 - Read-only capture of public Tabdeal market-event signals, with explicit first-page coverage and freshness metadata.
 - Research and risk-analysis functions.
 - Backtest helpers and a paper-simulation engine.
-- Automated syntax checks and tests on GitHub Actions.
-- Scheduled international Spot history capture every 15 minutes and hourly fixed-cost multi-timeframe out-of-sample strategy research across pre-registered 15m/1h/4h/daily profiles; daily backfill is bounded at 3,650 days.
+- Automated syntax checks and tests on public GitHub Actions.
+- Scheduled public market-history capture every 15 minutes; the active strategy screen is reduced to one daily 4h-only run.
 
-**This repository does not contain an authenticated account client or a live order executor.** It cannot read balances, place/cancel orders, withdraw, transfer funds, or enable live trading. The scanner uses public GET endpoints only and requires no API key. Daily Bitcoin Fear & Greed history from Alternative.me is captured separately with explicit attribution and a one-day conservative historical availability lag; it is context only, not an entry signal.
+**The Spot execution adapter is fail-closed and not deployed or enabled.** It builds signed requests only for allowlisted BTCUSDT Spot LIMIT orders, order lookup and cancellation; sending a live request requires a separately approved capped-pilot configuration, a risk-approved position plan, and a verified local book/fee/unit preflight. No account key or secret is stored in this repository. The scanner uses public GET endpoints only and requires no API key. Daily Bitcoin Fear & Greed history from Alternative.me is captured separately with explicit attribution and a one-day conservative historical availability lag; it is context only, not an entry signal.
 
 ## Important data limitations
 
