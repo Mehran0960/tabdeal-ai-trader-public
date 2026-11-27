@@ -707,6 +707,19 @@ async function readTabdealTradeCaptureHealth(env, nowMs = Date.now()) {
   return buildTabdealTradeCaptureHealth(state, rows.results || [], nowMs);
 }
 
+
+export function shouldRunTabdealQuarterHourScan(event, nowMs = Date.now()) {
+  const rawScheduledTime = Number(event?.scheduledTime);
+  let scheduledAtMs = nowMs;
+  if (Number.isSafeInteger(rawScheduledTime) && rawScheduledTime > 0) {
+    // Scheduled event telemetry/runtime values may be epoch seconds or milliseconds.
+    scheduledAtMs = rawScheduledTime < 1_000_000_000_000
+      ? rawScheduledTime * 1000
+      : rawScheduledTime;
+  }
+  return new Date(scheduledAtMs).getUTCMinutes() % 15 === 0;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -742,9 +755,7 @@ export default {
     // One lightweight public trade poll per minute builds exchange-local 1m candles.
     // The existing 15m shadow scan reuses this same Worker and schedule.
     const tasks = [pollTabdealSpotTrades(env)];
-    const scheduledAt = Number(event?.scheduledTime);
-    if (Number.isSafeInteger(scheduledAt) &&
-        new Date(scheduledAt).getUTCMinutes() % 15 === 0) {
+    if (shouldRunTabdealQuarterHourScan(event)) {
       tasks.push(runScan(env));
     }
     const outcomes = await Promise.allSettled(tasks);
