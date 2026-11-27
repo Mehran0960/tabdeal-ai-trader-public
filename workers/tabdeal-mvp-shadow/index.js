@@ -64,6 +64,7 @@ function normalizeKrakenOhlc(payload, nowMs) {
     const openTimeSeconds = Number(row[0]);
     const candle = {
       openTimeMs: openTimeSeconds * 1000,
+      closeTimeMs: (openTimeSeconds * 1000) + INTERVAL_MS - 1,
       open: Number(row[1]),
       high: Number(row[2]),
       low: Number(row[3]),
