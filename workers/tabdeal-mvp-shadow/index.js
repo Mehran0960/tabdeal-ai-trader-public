@@ -488,7 +488,10 @@ export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowM
     return {status: "insufficient_window_coverage", candles: []};
   }
   // A stale endpoint response must not be mistaken for a current rolling window.
-  if (latest.timeMs < nowMs - 10 * TRADE_CANDLE_MS) {
+  // A quiet market is not a stale poll. Retain carry-forward no-trade minutes
+  // as long as the newest observed trade is still inside the requested window.
+  // Signal eligibility separately enforces a much tighter last-actual-trade age.
+  if (latest.timeMs < nowMs - windowMinutes * TRADE_CANDLE_MS) {
     return {status: "stale_recent_trades", candles: []};
   }
 

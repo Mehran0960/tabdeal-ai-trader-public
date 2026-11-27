@@ -244,8 +244,8 @@ test("refuses recent-window backfill from a stale recent-trades page", () => {
   const end = Math.floor(now / minute) * minute;
   const start = end - 240 * minute;
   const rows = normalizeTabdealSpotTrades([
-    trade(20, start - minute, "60000"),
-    trade(21, now - 11 * minute, "60100")
+    trade(20, now - 242 * minute, "60000"),
+    trade(21, now - 241 * minute, "60100")
   ], now);
   assert.equal(buildTabdealRecentTradeCandles(rows, now, 240).status, "stale_recent_trades");
 });
