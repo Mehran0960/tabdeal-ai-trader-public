@@ -1,0 +1,6 @@
+ALTER TABLE tabdeal_local_paper_signals ADD COLUMN markout_5m_candle_open_ms INTEGER;
+ALTER TABLE tabdeal_local_paper_signals ADD COLUMN markout_5m_actual_elapsed_ms INTEGER;
+ALTER TABLE tabdeal_local_paper_signals ADD COLUMN markout_15m_candle_open_ms INTEGER;
+ALTER TABLE tabdeal_local_paper_signals ADD COLUMN markout_15m_actual_elapsed_ms INTEGER;
+ALTER TABLE tabdeal_local_paper_signals ADD COLUMN markout_60m_candle_open_ms INTEGER;
+ALTER TABLE tabdeal_local_paper_signals ADD COLUMN markout_60m_actual_elapsed_ms INTEGER;
