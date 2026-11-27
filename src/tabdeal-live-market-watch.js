@@ -1,9 +1,10 @@
 export const TABDEAL_LIVE_WATCH_POLICY = Object.freeze({
   apiBase: "https://api1.tabdeal.org/r/api/v1",
   websocketUrl: "wss://api1.tabdeal.org/stream/",
-  allowedQuoteAssets: Object.freeze(["USDT", "BTC"]),
-  excludedAssets: Object.freeze(["IRT"]),
-  maximumMarkets: 1000,
+  allowedQuoteAssets: Object.freeze(["USDT", "BTC", "IRT"]),
+  unverifiedQuoteAssets: Object.freeze(["IRT"]),
+  excludedBaseAssets: Object.freeze(["IRT"]),
+  maximumMarkets: 1200,
   subscriptionBatchSize: 25,
   maximumBookAgeMs: 8_000,
   maximumEventLagMs: 10_000,
@@ -81,8 +82,7 @@ export function discoverTabdealSpotUniverse(payload,{
     if(!TABDEAL_LIVE_WATCH_POLICY.allowedQuoteAssets.includes(quoteAsset)){
       excluded.unsupportedQuote++;continue;
     }
-    if(TABDEAL_LIVE_WATCH_POLICY.excludedAssets.includes(baseAsset)||
-       TABDEAL_LIVE_WATCH_POLICY.excludedAssets.includes(quoteAsset)){
+    if(TABDEAL_LIVE_WATCH_POLICY.excludedBaseAssets.includes(baseAsset)){
       excluded.excludedAsset++;continue;
     }
     if(seen.has(symbol)){excluded.invalid++;continue;}
@@ -95,6 +95,7 @@ export function discoverTabdealSpotUniverse(payload,{
       symbol,baseAsset,quoteAsset,
       status:market.status,
       isSpotTradingAllowed:market.isSpotTradingAllowed,
+      quoteUnitVerified:!TABDEAL_LIVE_WATCH_POLICY.unverifiedQuoteAssets.includes(quoteAsset),
       minQty:lot?.minQty??null,
       maxQty:lot?.maxQty??null,
       stepSize:lot?.stepSize??null,
@@ -119,6 +120,8 @@ export function discoverTabdealSpotUniverse(payload,{
       selectedMarketCount:selected.length,
       omittedBySafetyCap:Math.max(0,eligible.length-selected.length),
       quoteAssets:[...new Set(selected.map(row=>row.quoteAsset))].sort(),
+      unverifiedQuoteAssets:[...new Set(selected.map(row=>row.quoteAsset)
+        .filter(asset=>TABDEAL_LIVE_WATCH_POLICY.unverifiedQuoteAssets.includes(asset)))].sort(),
       assets:[...new Set(selected.map(row=>row.baseAsset).concat(selected.map(row=>row.quoteAsset)))].sort(),
       marketRulesReadyCount:selected.filter(row=>row.marketRulesReady).length,
       quoteAssetCounts:allQuoteAssetCounts,
