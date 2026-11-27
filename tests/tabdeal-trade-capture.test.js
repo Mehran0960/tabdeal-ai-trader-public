@@ -250,6 +250,27 @@ test("refuses recent-window backfill from a stale recent-trades page", () => {
   assert.equal(buildTabdealRecentTradeCandles(rows, now, 240).status, "stale_recent_trades");
 });
 
+test("does not report a null recent-backfill epoch as completed for continuity epoch zero", () => {
+  const state = {
+    last_successful_poll_at_ms: now - 10_000,
+    last_trade_time_ms: now - 8 * minute,
+    last_poll_status: "captured",
+    continuity_epoch: 0,
+    gap_count: 0,
+    recent_backfill_epoch: null
+  };
+  const end = Math.floor(now / minute) * minute;
+  const rows = Array.from({length:60},(_,i)=>({
+    minute_open_ms:end-minute*(i+1),
+    continuity_epoch:0,
+    coverage_status:i%5===0?"no_trade":"complete",
+    trade_count:i%5===0?0:1
+  }));
+  const health=buildTabdealTradeCaptureHealth(state,rows,now);
+  assert.equal(health.captureReady,true);
+  assert.equal(health.recentBackfillCompleted,false);
+});
+
 test("counts explicit zero-trade minutes as covered and does not require a new trade in every minute", () => {
   const state = {
     last_successful_poll_at_ms: now - 10_000,
