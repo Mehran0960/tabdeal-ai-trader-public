@@ -1,4 +1,4 @@
-name: Tabdeal signed TRADE capability check (read-only, strict 404 classification)
+name: Tabdeal signed TRADE capability check (read-only, strict error-code classification v2)
 
 on:
   push:
