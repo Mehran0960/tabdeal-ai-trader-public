@@ -36,6 +36,17 @@ function validExchangeInfo(overrides = {}) {
     ...overrides
   }];
 }
+function validLimitExchangeInfo({minNotional = "0.5"} = {}) {
+  return validExchangeInfo({
+    quoteOrderQtyMarketAllowed: false,
+    filters: [
+      {filterType: "MIN_NOTIONAL", minNotional, applyToMarket: false},
+      {filterType: "LOT_SIZE", minQty: "0.000001", maxQty: "100", stepSize: "0.00000001"},
+      {filterType: "PRICE_FILTER", minPrice: "0.01", maxPrice: "10000000", tickSize: "0.01"}
+    ]
+  });
+}
+
 function validDepth(overrides = {}) {
   return {
     lastUpdateId: 123,
@@ -135,7 +146,7 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
-  assert.equal(report.result, "order_accepted_reconciled");
+  assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.orderSubmitted, true);
   assert.equal(report.order.symbol, ONE_SHOT_SYMBOL);
   assert.equal(report.order.status, "FILLED");
@@ -158,16 +169,46 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(report.withdrawalOrTransferSent, false);
 });
 
-test("aborts before POST when quoteOrderQty market buys are not allowed", async () => {
+test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled", async () => {
   const {fetchImpl, calls} = makeFetch({
-    exchangeInfo: validExchangeInfo({quoteOrderQtyMarketAllowed: false})
+    exchangeInfo: validLimitExchangeInfo(),
+    postBody: {
+      ...filledOrder(),
+      price: "90045.00",
+      origQty: "0.00001110",
+      executedQty: "0.00001110",
+      cummulativeQuoteQty: "0.99949950",
+      type: "LIMIT"
+    }
+  });
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "order_filled_reconciled");
+  assert.equal(report.preflight.type, "LIMIT");
+  assert.ok(report.preflight.estimatedQuoteNotional <= 1);
+  const post = calls.find(call => call.method === "POST");
+  assert.ok(post);
+  const params = signedBodyParams(post);
+  assert.equal(params.get("type"), "LIMIT");
+  assert.equal(params.has("quoteOrderQty"), false);
+  assert.equal(params.get("price"), report.preflight.price);
+  assert.equal(params.get("quantity"), report.preflight.quantity);
+  assert.ok(Number(params.get("price")) * Number(params.get("quantity")) <= 1);
+  assert.equal(params.get("timeInForce"), null);
+});
+
+test("blocks the LIMIT fallback when the venue minimum cannot fit under one USDT", async () => {
+  const {fetchImpl, calls} = makeFetch({
+    exchangeInfo: validLimitExchangeInfo({minNotional: "1.01"})
   });
   const report = await runTabdealOneShotBuy({
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
-  assert.equal(report.reason, "quote_order_qty_market_not_allowed");
+  assert.equal(report.reason, "limit_notional_below_venue_minimum");
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 
