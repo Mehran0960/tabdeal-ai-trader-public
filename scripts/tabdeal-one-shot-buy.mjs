@@ -342,7 +342,7 @@ export async function runTabdealOneShotBuy({
 
   let order = normalizedOrder(postData, clientId);
   if (!order) {
-    try { order = await lookupByClientId({clientId, apiKey, apiSecret}); }
+    try { order = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl}); }
     catch {
       return {...base, result: "accepted_response_unreconciled_halt", preflight, orderSubmitted: true, clientOrderId: clientId};
     }
