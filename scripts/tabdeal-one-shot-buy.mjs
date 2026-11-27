@@ -94,7 +94,7 @@ function unitsDecimal(value, precision) {
   const fraction = (value % base).toString().padStart(precision, "0");
   return precision ? whole.toString() + "." + fraction : whole.toString();
 }
-function limitBuyForOneUsdt({symbolInfo, asks, bestAskText}) {
+function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
   if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("LIMIT")) {
     throw new Error("limit_order_type_not_allowed");
   }
@@ -129,7 +129,7 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText}) {
   }
 
   const stepUnits = decimalUnits(lot.stepSize, quantityPrecision);
-  const capUnits = decimalUnits(ONE_SHOT_QUOTE_AMOUNT, 8);
+  const capUnits = decimalUnits(quoteBudget, 8);
   const scale = 10n ** BigInt(pricePrecision + quantityPrecision);
   const quoteScale = 10n ** 8n;
   const maxQuantityUnits = (capUnits * scale) / (quoteScale * limitPriceUnits);
@@ -142,14 +142,14 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText}) {
   const quantity = unitsDecimal(quantityUnits, quantityPrecision);
   const notional = limitPriceNumber * Number(quantity);
   if (!Number.isFinite(notional) || notional <= 0 ||
-      notional > Number(ONE_SHOT_QUOTE_AMOUNT) + 1e-12) {
+      notional > Number(quoteBudget) + 1e-12) {
     throw new Error("limit_notional_exceeds_one_usdt");
   }
 
   const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
   const minNotional = positive(minNotionalFilter?.minNotional);
   if (!minNotional || notional + 1e-10 < minNotional ||
-      minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
+      minNotional > Number(quoteBudget)) {
     throw new Error("limit_notional_below_venue_minimum");
   }
 
@@ -165,7 +165,9 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText}) {
     type: "LIMIT",
     quantity,
     price: limitPrice,
-    maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
+    maxQuoteNotional: Number(quoteBudget),
+    maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
+    quoteBudget,
     estimatedQuoteNotional: notional,
     minNotional,
     lotStepSize: lot.stepSize,
@@ -200,6 +202,17 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
     throw new Error("free_usdt_below_one");
   }
+  const makerCommission = Number(account.makerCommission);
+  const takerCommission = Number(account.takerCommission);
+  if (!Number.isSafeInteger(makerCommission) || makerCommission < 0 ||
+      !Number.isSafeInteger(takerCommission) || takerCommission < 0 ||
+      makerCommission > 10_000 || takerCommission > 10_000) {
+    throw new Error("account_spot_commission_rate_unavailable");
+  }
+  const commissionBps = Math.max(makerCommission, takerCommission);
+  const quoteBudgetUnits = (100_000_000n * 10_000n) / (10_000n + BigInt(commissionBps));
+  const quoteBudget = unitsDecimal(quoteBudgetUnits, 8);
+  if (!(Number(quoteBudget) > 0)) throw new Error("quote_budget_after_fees_zero");
   if (!Array.isArray(openOrders) || openOrders.length !== 0) {
     throw new Error("existing_btcusdt_open_orders_present");
   }
@@ -222,7 +235,7 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     }
     const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
     const minNotional = positive(minNotionalFilter?.minNotional);
-    if (!minNotional || minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
+    if (!minNotional || minNotional > Number(quoteBudget)) {
       throw new Error("min_notional_exceeds_one_usdt_or_missing");
     }
     const marketLot = filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE");
@@ -230,7 +243,7 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     const maxQty = positive(marketLot?.maxQty);
     if (!minQty) throw new Error("market_lot_size_filter_missing");
     const maxPrice = bestAsk * (1 + MAX_BOOK_SLIPPAGE_BPS / 10_000);
-    let remainingQuote = Number(ONE_SHOT_QUOTE_AMOUNT);
+    let remainingQuote = Number(quoteBudget);
     let estimatedBase = 0;
     let estimatedQuote = 0;
     for (const level of asks) {
@@ -248,9 +261,11 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     }
     return {
       symbol: ONE_SHOT_SYMBOL, side: "BUY", type: "MARKET",
-      quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
-      maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
-      estimatedQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
+      quoteOrderQty: quoteBudget,
+      maxQuoteNotional: Number(quoteBudget),
+      maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
+      quoteBudget, commissionBps,
+      estimatedQuoteNotional: Number(quoteBudget),
       freeUsdt, minNotional, bestBid, bestAsk, spreadBps,
       projectedAveragePrice: estimatedQuote / estimatedBase,
       projectedSlippageBps: ((estimatedQuote / estimatedBase) / bestAsk - 1) * 10_000,
@@ -261,10 +276,10 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     };
   }
 
-  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0])});
+  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0]), quoteBudget});
   return {
     symbol: ONE_SHOT_SYMBOL, side: "BUY", ...limitIntent,
-    freeUsdt, bestBid, bestAsk, spreadBps,
+    freeUsdt, commissionBps, bestBid, bestAsk, spreadBps,
     marketOrderAllowed: false,
     quoteOrderQtyMarketAllowed: false,
     openOrdersBefore: openOrders.length
@@ -428,7 +443,7 @@ export async function runTabdealOneShotBuy({
     side: "BUY",
     type: preflight.type,
     ...(preflight.type === "MARKET"
-      ? {quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT}
+      ? {quoteOrderQty: preflight.quoteOrderQty}
       : {quantity: preflight.quantity, price: preflight.price, stopPrice: "0"}),
     newClientOrderId: clientId,
     timestamp: Date.now(),
