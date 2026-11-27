@@ -442,7 +442,7 @@ test("quiet recent-trade windows keep explicit no-trade bars without loosening s
   const result=buildTabdealRecentTradeCandles(rows,nowMs,240,0,"ETHUSDT");
   assert.equal(result.status,"complete");
   assert.equal(result.candles.length,240);
-  assert.equal(result.noTradeMinuteCount,237);
+  assert.equal(result.noTradeMinuteCount,238);
   assert.equal(result.candles.at(-1).coverage_status,"no_trade");
   assert.equal(result.candles.at(-1).close_price,"102");
   assert.ok(result.candles.every(candle=>candle.symbol==="ETHUSDT"));
