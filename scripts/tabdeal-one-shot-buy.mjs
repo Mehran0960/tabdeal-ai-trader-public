@@ -296,7 +296,7 @@ async function signedGet(path, params, apiKey, apiSecret, fetchImpl) {
   const data = await responseJson(response);
   return {response, data};
 }
-function normalizedOrder(data, fallbackClientOrderId) {
+function normalizedOrder(data, fallbackClientOrderId, fallbackType = "MARKET") {
   if (!isRecord(data) || data.orderId === undefined || data.orderId === null) return null;
   const fills = Array.isArray(data.fills) ? data.fills.map(fill => ({
     price: fill?.price ?? null,
@@ -309,7 +309,7 @@ function normalizedOrder(data, fallbackClientOrderId) {
     clientOrderId: data.clientOrderId || fallbackClientOrderId,
     symbol: data.symbol ?? ONE_SHOT_SYMBOL,
     side: data.side ?? "BUY",
-    type: data.type ?? "MARKET",
+    type: data.type ?? fallbackType,
     status: data.status ?? "UNKNOWN",
     originalQuantity: data.origQty ?? null,
     executedQuantity: data.executedQty ?? null,
@@ -427,8 +427,10 @@ export async function runTabdealOneShotBuy({
   const params = {
     symbol: ONE_SHOT_SYMBOL,
     side: "BUY",
-    type: "MARKET",
-    quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
+    type: preflight.type,
+    ...(preflight.type === "MARKET"
+      ? {quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT}
+      : {quantity: preflight.quantity, price: preflight.price, stopPrice: "0"}),
     newClientOrderId: clientId,
     timestamp: Date.now(),
     recvWindow: RECV_WINDOW_MS
@@ -495,7 +497,9 @@ export async function runTabdealOneShotBuy({
   }
   return {
     ...base,
-    result: "order_accepted_reconciled",
+    result: String(order.status).toUpperCase() === "FILLED" ? "order_filled_reconciled"
+      : String(order.status).toUpperCase() === "PARTIALLY_FILLED" ? "order_partially_filled_open"
+      : "order_accepted_open",
     preflight,
     order,
     orderSubmitted: true
@@ -507,7 +511,7 @@ export function safeOneShotSummary(report) {
     symbol: report.symbol,
     quoteAmountCap: report.quoteAmountCap,
     side: report.side,
-    orderType: report.orderType,
+    orderType: report.preflight?.type ?? report.orderType,
     result: report.result,
     reason: report.reason ?? null,
     httpStatus: report.httpStatus ?? null,
@@ -546,8 +550,7 @@ async function main() {
       (report.reason ? "- Block reason: " + report.reason + "\n" : "")
     );
   }
-  if (!report.orderSubmitted || report.orderSubmitted === "unknown" ||
-      !report.order || !["FILLED", "PARTIALLY_FILLED"].includes(String(report.order.status).toUpperCase())) {
+  if (!report.orderSubmitted || report.orderSubmitted === "unknown" || !report.order) {
     process.exitCode = 1;
   }
 }
