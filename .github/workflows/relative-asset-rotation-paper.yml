@@ -32,7 +32,7 @@ jobs:
         with:
           ref: signal-history
           path: signal-history
-          token: \${{ github.token }}
+          token: ${{ github.token }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -43,8 +43,8 @@ jobs:
           node --test tests/relative-asset-rotation.test.mjs
       - name: Evaluate fixed strategy against synchronized 4h history and run forward Paper only
         env:
-          GITHUB_RUN_ID: \${{ github.run_id }}
-          GITHUB_RUN_ATTEMPT: \${{ github.run_attempt }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           node scripts/relative-asset-rotation.mjs \
             --history-dir signal-history/data/international-market-history \
@@ -54,7 +54,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: relative-asset-rotation-\${{ github.run_id }}-\${{ github.run_attempt }}
+          name: relative-asset-rotation-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/relative-asset-rotation/latest.json
           if-no-files-found: warn
           retention-days: 30
