@@ -1,4 +1,4 @@
-name: Tabdeal signed TRADE capability check (read-only)
+name: Tabdeal signed TRADE capability check (read-only, v2)
 
 on:
   push:
