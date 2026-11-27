@@ -406,3 +406,46 @@ test("OCO cancellation requires owner approval but remains available with kill s
   assert.equal(result.order.listOrderStatus, "ALL_DONE");
   assert.equal(calls, 1);
 });
+
+
+test("OCO builder requires all three client identifiers explicitly", async () => {
+  const base = {
+    ...credentials, ...deterministic, symbol: "BTCUSDT", quantity: "0.001",
+    price: "68000", stopPrice: "63000", stopLimitPrice: "62900",
+    listClientOrderId: "oco-list-1", limitClientOrderId: "oco-limit-1", stopClientOrderId: "oco-stop-1"
+  };
+  const missing = {...base};
+  delete missing.stopClientOrderId;
+  await assert.rejects(buildTabdealOcoSellOrderRequest(missing), /oco_client_order_id_invalid/);
+});
+
+test("OCO response is reconciled from the exchange's two child-order records", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials, liveTradingEnabled: true, killSwitch: false, explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100, portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      if (options.method === "GET") return new Response(JSON.stringify({code: -2013, msg: "not found"}), {status: 404});
+      return new Response(JSON.stringify({
+        orderListId: 20, contingencyType: "OCO", listStatusType: "EXEC_STARTED",
+        listOrderStatus: "EXECUTING", listClientOrderId: "oco-list-success", symbol: "BTCUSDT",
+        orders: [
+          {symbol: "BTCUSDT", orderId: 159, clientOrderId: "oco-limit-success"},
+          {symbol: "BTCUSDT", orderId: 226, clientOrderId: "oco-stop-success"}
+        ],
+        orderReports: []
+      }), {status: 200, headers: {"content-type": "application/json"}});
+    }
+  });
+  const result = await client.submitOcoExit({
+    symbol: "BTCUSDT", quantity: "0.001", price: "68000", stopPrice: "63000",
+    stopLimitPrice: "62900", listClientOrderId: "oco-list-success",
+    limitClientOrderId: "oco-limit-success", stopClientOrderId: "oco-stop-success",
+    riskPlan: {approved: true, quantity: 0.001, notional: 68, assumptions: {leverage: false, shorting: false}}
+  });
+  assert.equal(result.status, "accepted");
+  assert.equal(result.order.orderListId, "20");
+  assert.equal(result.order.orders.length, 2);
+  assert.deepEqual(calls, ["GET", "POST"]);
+});
