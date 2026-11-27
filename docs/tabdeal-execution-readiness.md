@@ -7,11 +7,11 @@ Repository: `Mehran0960/tabdeal-ai-trader-public`
 
 A read-only GitHub Actions audit on the public repository completed successfully:
 
-- Signed `GET /account`: HTTP 200; account type `SPOT`; `canTrade=true`.
-- Signed `GET /openOrders?symbol=PAXGUSDT`: HTTP 200; the endpoint returned zero open orders at the time of the check.
-- Signed `GET /order` using the synthetic `origClientOrderId` `audit-probe-no-order-20261127`: HTTP 404; the synthetic order was not found, as expected. No account order details are logged.
+- Signed `GET /account`: HTTP 200; account type `SPOT`; `canTrade=true`. The response can contain balance fields; the audit extracts only `accountType` and `canTrade`. Balance values were not extracted into the report, persisted, or logged.
+- Signed `GET /openOrders?symbol=PAXGUSDT`: HTTP 200; zero open orders at the time of the check. The audit records only the count; no order details are retained or logged.
+- Signed `GET /order` using the synthetic `origClientOrderId` `audit-probe-no-order-20261127`: the first audit received HTTP 404. The audit was hardened to classify this as “not found” only when the structured API error code is `-2013`; a bare/unclassified 404 is no longer treated as success.
 - All three calls use the `TRADE` authentication class and HMAC-SHA256 signing.
-- No `POST`, `DELETE`, cancellation, withdrawal, transfer, or balance read/print was performed.
+- No `POST`, `DELETE`, cancellation, withdrawal, transfer, or order creation was performed.
 
 The official Tabdeal Python SDK marks `account()`, `get_open_orders()`, and `get_order()` as `SecurityTypes.TRADE`. It also marks `new_order()` as `SecurityTypes.TRADE`; the Spot SDK submits `POST /order`. This confirms the documented request class, not that this specific key's POST permission has been accepted.
 

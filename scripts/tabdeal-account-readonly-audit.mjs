@@ -23,10 +23,17 @@ async function readOnlyGet({apiKey,apiSecret,path,params,fetchImpl}) {
     try {data=JSON.parse(body);} catch {data=null;}
     if(!response.ok) {
       const code=safeCode(data);
-      if(path==="/order"&&(response.status===404||String(code)==="-2013")) {
-        return {ok:true,httpStatus:response.status,found:false,result:"synthetic_order_not_found_as_expected"};
+      // Only the exchange's structured "order does not exist" code proves
+      // the synthetic-ID lookup reached the expected order-not-found result.
+      if(path==="/order"&&String(code)==="-2013") {
+        return {ok:true,httpStatus:response.status,apiErrorCode:code,found:false,
+          result:"synthetic_order_not_found_as_expected"};
       }
-      return {ok:false,httpStatus:response.status,apiErrorCode:code,result:"http_error"};
+      return {
+        ok:false,httpStatus:response.status,apiErrorCode:code,
+        result:path==="/order"&&response.status===404
+          ?"unclassified_order_lookup_404":"http_error"
+      };
     }
     if(path==="/account") {
       if(!data||typeof data!=="object"||Array.isArray(data)) {
@@ -94,7 +101,7 @@ export async function runTabdealTradeReadAudit({
     status,checkedAt,credentialsPresent,accountRead,openOrdersRead,orderLookupRead,
     symbolChecked:"PAXGUSDT",orderLookupUsedSyntheticClientOrderId:true,
     securityClass:"TRADE",ordersSubmitted:false,cancelAttempted:false,fundsMoved:false,
-    balancesPrinted:false,orderDetailsPrinted:false,credentialsPrinted:false
+    balancesExtracted:false,balancesLogged:false,orderDetailsLogged:false,credentialsLogged:false
   };
 }
 
@@ -108,8 +115,9 @@ export function safeAuditSummary(report) {
     orderLookupUsedSyntheticClientOrderId:report.orderLookupUsedSyntheticClientOrderId,
     securityClass:report.securityClass,
     ordersSubmitted:false,cancelAttempted:false,fundsMoved:false,
-    balancesPrinted:false,orderDetailsPrinted:false,credentialsPrinted:false,
-    note:"All calls were signed GETs. They confirm read access only, not POST /order permission."
+    balancesExtracted:false,balancesLogged:false,
+    orderDetailsLogged:false,credentialsLogged:false,
+    note:"Only signed GET requests were sent. The account response can contain balance fields; this audit extracts only accountType/canTrade and does not persist or log balance values. GET access does not prove POST /order permission."
   };
 }
 
@@ -128,9 +136,10 @@ async function main() {
       "- Open-order count: "+(report.openOrdersRead.openOrderCount??"not returned")+"\n"+
       "- GET /order with synthetic client ID: "+(report.orderLookupRead.ok?"success":"not confirmed")+"\n"+
       "- Synthetic order found: "+(report.orderLookupRead.found??"not returned")+"\n"+
+      "- Order lookup API code: "+(report.orderLookupRead.apiErrorCode??"not returned")+"\n"+
       "- Authentication class: TRADE\n"+
       "- POST /order, cancellation, withdrawal, transfer: not attempted\n"+
-      "- Balances, order details and credentials: not logged\n\n"+
+      "- Balance values, order details and credentials: not logged\n\n"+
       "> Successful GET requests do not prove that POST /order will be accepted.\n","utf8");
   }
   if(!report.accountRead.ok||!report.openOrdersRead.ok||!report.orderLookupRead.ok) process.exitCode=1;
