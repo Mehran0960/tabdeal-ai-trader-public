@@ -75,7 +75,7 @@ function filledOrder() {
     price: "0",
     origQty: "0.00001111",
     executedQty: "0.00001111",
-    cummulativeQuoteQty: "0.99601593",
+    cummulativeQuoteQty: "1.00000000",
     status: "FILLED",
     type: "MARKET",
     side: "BUY",
@@ -191,7 +191,8 @@ test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled"
   assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.preflight.type, "LIMIT");
   assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.quoteBudget);
-  assert.ok(report.preflight.quoteBudget < 1);
+  assert.equal(report.preflight.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.preflight.commissionBps, 40);
   assert.equal(report.preflight.maxTotalDebitQuote, 1);
   const post = calls.find(call => call.method === "POST");
   assert.ok(post);
@@ -214,6 +215,8 @@ test("blocks the LIMIT fallback when the venue minimum cannot fit under one USDT
   });
   assert.equal(report.result, "preflight_blocked");
   assert.equal(report.reason, "limit_notional_below_venue_minimum");
+  assert.equal(report.diagnostics.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.diagnostics.minimumQuoteNotional, "1.01");
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 
@@ -245,7 +248,7 @@ test("handles high-precision venue tick and lot filters without floating-point r
   assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
-test("blocks if the account commission rates are unavailable", async () => {
+test("does not reserve commission from the user's one-USDT order amount", async () => {
   const {fetchImpl, calls} = makeFetch({
     account: validAccount({makerCommission: undefined, takerCommission: undefined})
   });
@@ -253,9 +256,11 @@ test("blocks if the account commission rates are unavailable", async () => {
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
-  assert.equal(report.result, "preflight_blocked");
-  assert.equal(report.reason, "account_spot_commission_rate_unavailable");
-  assert.equal(calls.filter(call => call.method === "POST").length, 0);
+  assert.equal(report.result, "order_filled_reconciled");
+  assert.equal(report.preflight.quoteOrderQty, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.preflight.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.preflight.commissionBps, null);
+  assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
 test("aborts before POST when free USDT is below the one-USDT cap", async () => {
