@@ -122,7 +122,7 @@ test("rejects symbols outside the fixed public research shortlist", async()=>{
     runTabdealPublicMarketScout({symbols:["BTCIRT","BTCFAKE"]}),
     /tabdeal_research_symbol_not_allowlisted/
   );
-  assert.equal(TABDEAL_PUBLIC_RESEARCH_SYMBOLS.length,10);
+  assert.equal(TABDEAL_PUBLIC_RESEARCH_SYMBOLS.length,11);
 });
 
 test("does not add markets missing active SPOT permission metadata",async()=>{
@@ -217,4 +217,30 @@ test("separates parse-valid trade snapshots from freshness diagnostics",async()=
   assert.equal(report.summary.tradeSnapshotsWithFutureTimestamp,0);
   assert.equal(report.summary.tradeFreshnessDiagnosticThresholdMs,60_000);
   assert.equal(report.summary.cappedTradePages,0);
+});
+
+
+test("discovers and snapshots the direct ETHBTC Spot pair using BTC as quote asset", async()=>{
+  const now=Date.now();
+  const report=await runTabdealPublicMarketScout({
+    symbols:["ETHBTC"],clock:()=>now,spacingMs:0,sleepImpl:async()=>{},
+    fetchImpl:async url=>{
+      const parsed=new URL(String(url));
+      if(parsed.pathname.endsWith("/exchangeInfo"))return {ok:true,status:200,json:async()=>[
+        market("ETHBTC","ETH","BTC")
+      ]};
+      if(parsed.pathname.endsWith("/depth"))return {ok:true,status:200,json:async()=>book()};
+      if(parsed.pathname.endsWith("/trades"))return {ok:true,status:200,json:async()=>trades(now)};
+      throw new Error("unexpected_url");
+    }
+  });
+  assert.equal(report.snapshots.length,1);
+  assert.equal(report.snapshots[0].symbol,"ETHBTC");
+  assert.equal(report.snapshots[0].baseAsset,"ETH");
+  assert.equal(report.snapshots[0].quoteAsset,"BTC");
+  assert.equal(report.snapshots[0].quoteUnitCode,"BTC");
+  assert.equal(report.snapshots[0].orderbook.status,"ok");
+  assert.equal(report.snapshots[0].trades.status,"ok");
+  assert.equal(report.safety.liveTradingEnabled,false);
+  assert.equal(report.safety.exchangeOrdersPlaced,0);
 });
