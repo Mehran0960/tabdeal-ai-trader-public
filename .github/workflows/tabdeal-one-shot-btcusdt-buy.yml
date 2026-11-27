@@ -1,0 +1,39 @@
+name: Tabdeal one-shot BTCUSDT Spot buy (maximum 1 USDT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_one_shot_buy:
+        description: "Confirm exactly one BTCUSDT Spot market BUY with quote notional capped at 1.00000000 USDT"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-one-shot-live-buy
+  cancel-in-progress: false
+
+jobs:
+  one-shot-buy:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main' && inputs.confirm_one_shot_buy == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify the one-shot execution safety tests
+        run: |
+          node --check scripts/tabdeal-one-shot-buy.mjs
+          node --test tests/tabdeal-one-shot-buy.test.mjs
+      - name: Submit at most one explicitly approved BTCUSDT Spot buy
+        env:
+          TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
+          TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
+          TABDEAL_ONE_SHOT_CONFIRM: ${{ inputs.confirm_one_shot_buy }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/tabdeal-one-shot-buy.mjs
