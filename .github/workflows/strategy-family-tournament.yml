@@ -1,15 +1,12 @@
 name: Tabdeal Strategy Family Tournament
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Tabdeal Dynamic Spot Market History"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "src/strategy-family-tournament.js"
-      - "scripts/strategy-family-tournament.mjs"
-      - "tests/strategy-family-tournament.test.mjs"
-      - ".github/workflows/strategy-family-tournament.yml"
   schedule:
-    - cron: "35 */4 * * *"
+    - cron: "50 */4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,9 +18,9 @@ concurrency:
 
 jobs:
   tournament:
-    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Check out private-safe append-only public market history
@@ -40,8 +37,11 @@ jobs:
           node --check src/strategy-family-tournament.js
           node --check scripts/strategy-family-tournament.mjs
           node --test tests/strategy-family-tournament.test.mjs
-      - name: Compare all strategy families across identical data and costs
-        run: node scripts/strategy-family-tournament.mjs --history-dir signal-history/data/international-market-history
+      - name: Compare all strategy families across the latest dynamic universe
+        run: |
+          node scripts/strategy-family-tournament.mjs \
+            --history-dir signal-history/data/international-market-history \
+            --universe signal-history/data/dynamic-tabdeal-rotation-universe/latest-universe.json
       - name: Upload sanitized tournament report
         if: always()
         uses: actions/upload-artifact@v4
