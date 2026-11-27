@@ -1,4 +1,4 @@
-name: Tabdeal read-only account and open-orders checks (order lookup informational)
+name: Tabdeal read-only account and open-orders checks (order lookup separately reported)
 
 on:
   push:
