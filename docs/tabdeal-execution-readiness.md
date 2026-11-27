@@ -33,7 +33,7 @@ The current execution client is deliberately fail-closed by default:
 
 ## Remaining blockers before any live order
 
-1. **POST permission is not verified.** `canTrade=true` and successful signed GETs do not prove `POST /order` will be accepted. No real POST test is authorized or performed.
+1. **POST permission is not verified.** `canTrade=true` and successful signed GETs do not prove `POST /order` will accept a valid Spot order. A separate one-shot negative-payload probe checks for an explicit authentication/permission rejection using an unlisted synthetic symbol, invalid side/type, and zero quantity. A validation error only shows that the signed POST endpoint responded; it does not prove a valid order would be accepted.
 2. **Exchange filters are not yet an enforced executor precondition.** Before live wiring, the executor must fetch fresh `exchangeInfo` and validate status, Spot permission, `LOT_SIZE`, `PRICE_FILTER`, minimum notional, quantity step, and price tick using exact decimal arithmetic.
 3. **Execution-time market quality must be bound to the order intent.** A live path must require fresh order-book data, spread and two-sided depth gates, conservative fees/slippage, latency protection, and a maximum quote notional.
 4. **The risk plan must come from trusted server-side portfolio state.** The live executor must not trust client-supplied booleans or a caller-created `approved=true` object as the only risk authorization.
@@ -102,3 +102,23 @@ The canonical read-only market scan is scheduled every six hours (`13 */6 * * *`
 
 No new credential or repository change is needed for Paper operation. Do not paste API credentials into chat or enable withdrawal permissions. Before any live pilot, the remaining user-side step is to obtain confirmation from Tabdeal support that this specific key is permitted to submit Spot `POST /order` requests and to authorize a separate, tightly capped live pilot after the strategy and executor gates pass.
 
+
+
+## Updated read-only Paper data snapshot — 2026-11-27 12:34 UTC
+
+A D1 read-only query found 433 evaluations across the six-symbol Paper watchlist. There were zero BUY candidates, zero Paper entries, and zero completed 5m/15m/60m markouts. The dominant decision reasons were 359 activity/coverage blocks and 74 unconfirmed-trend blocks.
+
+| Symbol | 1m bars | Trades in stored bars | No-trade bars | Evaluations | Paper entries |
+|---|---:|---:|---:|---:|---:|
+| BTCUSDT | 495 | 318 | 302 | 198 | 0 |
+| DOGEUSDT | 259 | 51 | 226 | 10 | 0 |
+| ETHUSDT | 393 | 76 | 337 | 27 | 0 |
+| PAXGUSDT | 374 | 76 | 317 | 58 | 0 |
+| SOLUSDT | 396 | 83 | 335 | 91 | 0 |
+| XRPUSDT | 396 | 148 | 296 | 49 | 0 |
+
+The poll state for all six symbols was current to approximately 12:34 UTC, with zero continuity-epoch changes and zero recorded gap events. Therefore the immediate bottleneck was not a stopped Worker or a polling outage: the sampled REST trade flow was sparse for most watched markets, and the no-trade ratio remained above the unchanged quality gates. The Paper watchlist and all entry thresholds remain unchanged.
+
+A two-minute public-only WebSocket capability probe is now scheduled every six hours for BTCUSDT's experimental trade topics. It is diagnostic only; its output is not merged into the Paper candles. If it observes live trade events, the next engineering step is to verify event ordering, deduplication, gap recovery, and deployment feasibility before using the stream as a second collection source. If it does not, that short result alone is not proof that the topics are unsupported.
+
+A separate guarded POST negative-payload probe is isolated from the Paper Worker. It first confirms that its deliberately invalid symbol is absent from public exchange metadata, then sends at most one HMAC-signed request with an invalid side, invalid order type, zero quantity, and zero price. It has no retries and never uses a real market symbol or valid order intent. Any client-side validation response is **not** proof that a valid order can be placed. No live trading is enabled by this probe.

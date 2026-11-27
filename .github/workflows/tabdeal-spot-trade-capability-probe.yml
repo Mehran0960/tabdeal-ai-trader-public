@@ -6,6 +6,8 @@ on:
     paths:
       - "scripts/probe-tabdeal-spot-trade-stream.mjs"
       - ".github/workflows/tabdeal-spot-trade-capability-probe.yml"
+  schedule:
+    - cron: "31 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,13 +16,15 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Passively test undocumented Spot trade topics
+      - name: Passively test undocumented Spot trade topics for two minutes
+        env:
+          TABDEAL_SPOT_TRADE_PROBE_DURATION_MS: "120000"
         run: node scripts/probe-tabdeal-spot-trade-stream.mjs
       - name: Preserve probe result briefly
         uses: actions/upload-artifact@v4
@@ -28,4 +32,4 @@ jobs:
           name: tabdeal-spot-trade-ws-capability-probe
           path: artifacts/tabdeal-spot-trade-probe/latest.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
