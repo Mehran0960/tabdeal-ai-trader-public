@@ -91,7 +91,7 @@ test("performs only three signed GETs and discards all sensitive response fields
         }])
       };
       return {
-        ok:false,status:400,
+        ok:false,status:404,
         text:async()=>JSON.stringify({code:-2013,msg:"Order does not exist"})
       };
     }
@@ -108,13 +108,32 @@ test("performs only three signed GETs and discards all sensitive response fields
   assert.equal(report.accountRead.canTrade,true);
   assert.equal(report.openOrdersRead.openOrderCount,1);
   assert.equal(report.orderLookupRead.found,false);
+  assert.equal(String(report.orderLookupRead.apiErrorCode),"-2013");
   const safe=JSON.stringify(safeAuditSummary(report));
   for(const privateValue of ["98765.43","3658.12","private-order-id","test-secret","Order does not exist"]) {
     assert.equal(safe.includes(privateValue),false);
   }
+  assert.equal(report.balancesExtracted,false);
   assert.equal(report.ordersSubmitted,false);
   assert.equal(report.cancelAttempted,false);
   assert.equal(report.fundsMoved,false);
+});
+
+test("does not equate an unclassified HTTP 404 with an order-not-found API response",async()=>{
+  let calls=0;
+  const report=await runTabdealTradeReadAudit({
+    apiKey:"key",apiSecret:"secret",
+    fetchImpl:async()=>{
+      calls++;
+      if(calls===1) return {ok:true,status:200,text:async()=>JSON.stringify({accountType:"SPOT",canTrade:true})};
+      if(calls===2) return {ok:true,status:200,text:async()=>JSON.stringify([])};
+      return {ok:false,status:404,text:async()=>JSON.stringify({code:1204,msg:"unclassified response"})};
+    }
+  });
+  assert.equal(report.status,"ACCOUNT_AND_OPEN_ORDERS_OK_ORDER_LOOKUP_FAILED");
+  assert.equal(report.orderLookupRead.ok,false);
+  assert.equal(report.orderLookupRead.result,"unclassified_order_lookup_404");
+  assert.equal(report.orderLookupRead.apiErrorCode,1204);
 });
 
 test("preserves endpoint failures without logging provider message bodies",async()=>{
