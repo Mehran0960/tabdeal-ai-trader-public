@@ -1,0 +1,105 @@
+name: Tabdeal Continuous Spot Market Watch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/tabdeal-live-market-watch.js"
+      - "scripts/tabdeal-live-market-watch.mjs"
+      - "tests/tabdeal-live-market-watch.test.mjs"
+      - ".github/workflows/tabdeal-live-market-watch.yml"
+      - "package.json"
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Watch mode
+        required: true
+        default: probe
+        type: choice
+        options:
+          - probe
+          - continuous
+      duration_minutes:
+        description: Watch duration (maximum 335 minutes per runner)
+        required: true
+        default: "3"
+        type: string
+      max_markets:
+        description: Maximum active Spot markets to subscribe to
+        required: true
+        default: "1000"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tabdeal-live-market-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out private-safe rolling market history
+        uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: \${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax-check watcher and run market-watch unit tests
+        run: |
+          node --check src/tabdeal-live-market-watch.js
+          node --check scripts/tabdeal-live-market-watch.mjs
+          node --test tests/tabdeal-live-market-watch.test.mjs
+      - name: Select schedule or manual watch settings
+        id: settings
+        shell: bash
+        env:
+          EVENT_NAME: \${{ github.event_name }}
+          INPUT_MODE: \${{ inputs.mode || 'probe' }}
+          INPUT_DURATION: \${{ inputs.duration_minutes || '3' }}
+          INPUT_MAX_MARKETS: \${{ inputs.max_markets || '1000' }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            echo "mode=continuous" >> "$GITHUB_OUTPUT"
+            echo "duration=335" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            echo "mode=probe" >> "$GITHUB_OUTPUT"
+            echo "duration=3" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
+            echo "duration=$INPUT_DURATION" >> "$GITHUB_OUTPUT"
+          fi
+          echo "max_markets=$INPUT_MAX_MARKETS" >> "$GITHUB_OUTPUT"
+      - name: Watch all selected public Spot books and evaluate provisional relative-value candidates
+        env:
+          GITHUB_RUN_ID: \${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: \${{ github.run_attempt }}
+        run: |
+          node scripts/tabdeal-live-market-watch.mjs \
+            --mode "\${{ steps.settings.outputs.mode }}" \
+            --duration-minutes "\${{ steps.settings.outputs.duration }}" \
+            --max-markets "\${{ steps.settings.outputs.max_markets }}" \
+            --batch-size 25 \
+            --persist-every-minutes 60 \
+            --history-repo signal-history \
+            --state-file data/tabdeal-live-market-watch/rolling-state.json \
+            --output artifacts/tabdeal-live-market-watch/latest.json
+      - name: Upload sanitized market coverage and opportunity-watch report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-live-market-watch-\${{ github.run_id }}-\${{ github.run_attempt }}
+          path: artifacts/tabdeal-live-market-watch/latest.json
+          if-no-files-found: warn
+          retention-days: 7
+
