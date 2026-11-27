@@ -1,5 +1,16 @@
 # Operating plan
 
+## Production verification — 2026-11-27 07:00 UTC
+
+- The lightweight Tabdeal BTCUSDT Shadow Worker is deployed as `tabdeal-mvp-shadow`, with its D1 binding present, observability enabled, and a 15-minute Cron. Its read-only health endpoint is `GET /health`.
+- First observed post-hardening scan: **2026-11-27T07:00:33.294Z**. Kraken XBTUSD supplied 720 contiguous closed 4h candles (no detected gaps); the local Tabdeal BTCUSDT book was fetched in 699 ms. The snapshot reported a 13.485 bps spread, 11,075.31 USDT bid depth and 124,233.21 USDT ask depth within 0.25% of mid. Both sides independently passed the 1,000 USDT minimum.
+- The observed market regime was `SIDEWAYS`; the worker correctly returned `WAIT` because no research-qualified strategy exists. The report showed `fresh=true`, no source errors, no private credentials used, no account read, no order attempt, zero exchange orders and no funds movement.
+- PR [#38](https://github.com/Mehran0960/tabdeal-ai-trader-public/pull/38) fixed the Shadow gate so bid and ask depth are checked independently; the fix was deployed to the Worker and the subsequent scheduled scan passed.
+- PR [#39](https://github.com/Mehran0960/tabdeal-ai-trader-public/pull/39) mirrored the two-sided depth requirement into the shared Paper entry engine. Its CI passed **161/161 tests**, and the post-merge main CI passed. The matching private-core PR [#52](https://github.com/Mehran0960/nobitex-ai-trader/pull/52) remains open because that repository's CI reported failure; its job log could not be retrieved, so it has not been represented as passing or merged.
+- The historical research gate remains unchanged: 180 tested hypotheses, 171 available OOS results and **zero candidates passing all promotion gates**. The Shadow monitor is operational, but Paper promotion and live trading remain disabled. Do not loosen the research thresholds to manufacture trades.
+- Next gate: verify the private Tabdeal account read path and account-specific fee/permission data without exposing balances in logs; then design a Tabdeal-local forward-Paper ledger. No live execution is permitted until a strategy passes validation and the Paper ledger demonstrates stable net performance.
+
+
 ## Project boundary
 
 **Lean MVP (2026-11-27):** Tabdeal Spot BTCUSDT only; closed Binance Spot BTCUSDT 4h candles for signal context; fresh Tabdeal Spot REST depth and exchange metadata for local execution checks; fixed EMA20/EMA50 long-only rule; one daily 4h research screen. See [Lean MVP](LEAN-MVP.md).
