@@ -5,7 +5,7 @@ export const TABDEAL_SELL_MAX_SPREAD_BPS = 30;
 export const TABDEAL_SELL_MAX_SLIPPAGE_BPS = 50;
 const API_BASE = "https://api1.tabdeal.org";
 const RECV_WINDOW_MS = 5_000;
-const DECIMAL = /^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$/;
+const DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const CLIENT_ORDER_ID = /^[A-Za-z0-9._-]{1,36}$/;
 
 function isRecord(value) {
