@@ -2,3 +2,5 @@ READ-ONLY MARKET SCOUT
 Date: 2026-11-27
 Purpose: identify active liquid Tabdeal Spot USDT pairs whose live tick/step/min-notional filters allow a valid order not exceeding exactly 1 USDT.
 No order submission, cancellation or funds movement is permitted in this scout.
+
+Expanded scan scope: all active Spot USDT markets with LIMIT order support, not only the initial curated list. The scout uses bounded concurrency and one signed all-open-orders read; it remains GET-only and no order or cancellation may be sent.
