@@ -16,7 +16,7 @@ The first operational lane is deliberately narrow:
 - Order type for the first adapter: **LIMIT only**.
 - Default mode: **Paper / no order**. The live adapter is fail-closed and is not deployed or enabled by this PR.
 
-Kraken Spot `XBTUSD` is the current Shadow trend-context source because the Cloudflare Worker runtime returned HTTP 451 from `api.binance.com` and HTTP 403 from `data-api.binance.vision`; those Binance hosts are therefore excluded from the Worker runtime. Kraken's official OHLC API returns up to 720 entries and includes the current uncommitted candle; the Worker discards that candle, requires a fresh contiguous 4h series, and treats Kraken's quote as USD. EMA trend ratios are used only as context; the USD price is never compared with or substituted for Tabdeal's USDT price. Nobitex UDF candles remain archived/research-only until pair-level unit, freshness and gap checks are repeated. Do not use Tabdeal's single-page recent-trades endpoint as a candle or strategy source: a page at the 1,000-row cap is potentially truncated, and there is no documented cursor/sequence completeness contract.
+Kraken Spot `XBTUSD` is the current Shadow trend-context source because the Cloudflare Worker runtime returned HTTP 451 from `api.binance.com` and HTTP 403 from `data-api.binance.vision`; those Binance hosts are therefore excluded from the Worker runtime. Kraken's official OHLC API returns up to 720 entries and includes the current uncommitted candle; the Worker discards that candle, requires a fresh contiguous 4h series, and treats Kraken's quote as USD. EMA trend ratios are used only as context; the USD price is never compared with or substituted for Tabdeal's USDT price. Nobitex UDF candles remain archived/research-only until pair-level unit, freshness and gap checks are repeated. Do not treat one Tabdeal recent-trades page as historical data: it is capped at 1,000 rows and has no documented historical cursor. The Shadow Worker now polls this endpoint once per minute and builds **forward-only local 1m OHLCV** from unseen trade IDs. Its first poll establishes a baseline rather than pretending to backfill history. A capped page that cannot overlap the previous successful poll, an ID/time reversal, or a stale source resets the continuity epoch; affected intervals are excluded rather than patched. The first complete bars begin only after the baseline, and at least 240 consecutive closed 1m bars are required before a locally derived 4h candle window is considered available.
 
 ## Research reduction
 
@@ -32,7 +32,7 @@ A recent 4h screen found no candidate that remained profitable in all three prov
 | Binance Spot BTCUSDT 4h OHLCV | Offline research/history only | The research dataset was captured by public GitHub Actions; direct Worker fetch returned 451/403 and is not used in the live Shadow runtime |
 | Tabdeal BTCUSDT Spot /depth | Required local execution check | Must be fetched fresh at decision/submit time; external prices are never executable quotes |
 | Tabdeal exchangeInfo | Required local market-rule check | Verify active Spot pair and filters before any Paper/live request |
-| Tabdeal /trades 1,000-row page | Excluded from signal history | Potential truncation; no documented completeness cursor |
+| Tabdeal `/trades` recent page | Forward-only local 1m candle builder; never used as a historical backfill | One-minute polling; unseen IDs only; cap/continuity checks and fail-closed gap epochs |
 | Tabdeal Spot WebSocket depth summaries | Diagnostic only | Snapshot/delta and recovery semantics remain insufficiently specified |
 | Nobitex UDF candles | Excluded from active MVP | Historical data is stale and pair-specific unit/freshness checks need refresh |
 | Kraken Spot | Optional cross-check only | Different quote currency (USD); not an executable Tabdeal price |
@@ -44,11 +44,11 @@ If Kraken retrieval is unavailable or the returned candle series is stale/gapped
 
 ## Minimal operating flow
 
-1. Read closed Kraken XBTUSD 4h candles; validate time ordering, closure, duplicates and the latest contiguous segment. Keep the data labelled USD and use only percentage-based trend context.
-2. Calculate the fixed EMA20/EMA50 trend rule already implemented in the shared research core. No parameter search.
-3. Fetch current Tabdeal BTCUSDT Spot exchangeInfo and /depth; verify quote asset, active Spot status, spread, depth, order filters and local timestamp.
-4. Apply the deterministic portfolio risk plan. Existing project defaults are 0.25% risk per trade, 20% maximum gross exposure, 2% daily-loss stop and 20% portfolio drawdown stop; no leverage or shorting.
-5. Until forward Paper is separately enabled and reconciled, report the signal and local execution feasibility only. Never create a live order from the research workflow.
+1. Poll Tabdeal BTCUSDT Spot trades once per minute; deduplicate through the last accepted trade ID, build local 1m OHLCV, and expose capture freshness/continuity. Do not infer unobserved trades or fill missing minutes.\n2. Read closed Kraken XBTUSD 4h candles; validate time ordering, closure, duplicates and the latest contiguous segment. Keep the data labelled USD and use only percentage-based trend context.
+3. Calculate the fixed EMA20/EMA50 trend rule already implemented in the shared research core. No parameter search.
+4. Fetch current Tabdeal BTCUSDT Spot exchangeInfo and /depth; verify quote asset, active Spot status, spread, depth, order filters and local timestamp.
+5. Apply the deterministic portfolio risk plan. Existing project defaults are 0.25% risk per trade, 20% maximum gross exposure, 2% daily-loss stop and 20% portfolio drawdown stop; no leverage or shorting.
+6. Until forward Paper is separately enabled and reconciled, report the signal and local execution feasibility only. Never create a live order from the research workflow.
 
 ## Execution adapter
 
@@ -74,8 +74,8 @@ The official SDK documents Spot order submission at POST /api/v1/order, private 
 - This public repository is the source for public market data, reusable strategy/risk code and the sanitized adapter.
 - Cloudflare Worker secrets and D1 bindings stay in Cloudflare; none are copied into GitHub source.
 - The existing private nobitex-ai-trader repository is now a legacy/private operations and Nobitex archive. It must not be required for routine public-data collection, research or adapter unit tests.
-- The current deployed Cloudflare market-ingest Worker is a separate runtime from GitHub Actions and continues to collect public Tabdeal snapshots on its own one-minute Cron. It is not an order executor.
-- This PR does **not** migrate or redeploy that Worker, add a new Cron, alter D1, install secrets, or enable any order. A separate reviewed deployment change is still required to run the adapter in a Cloudflare Worker.
+- The Cloudflare `tabdeal-mvp-shadow` Worker runs one public Spot trade poll per minute and the existing Shadow trend/book scan every 15 minutes. D1 stores compact 1m aggregates only; the Worker is not an order executor.
+- This source change requires the D1 schema migration and a matching Worker deployment/schedule update. Those operational changes remain read-only: no credentials, account access, or live order capability are added.
 
 ## Acceptance gates
 
