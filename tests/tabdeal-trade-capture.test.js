@@ -6,6 +6,7 @@ import {
   aggregateTabdealTradeCandles,
   mergeTabdealTradeCandle,
   buildTabdealTradeCaptureHealth,
+  buildTabdealRecentTradeCandles,
   shouldRunTabdealQuarterHourScan
 } from "../workers/tabdeal-mvp-shadow/index.js";
 
@@ -92,7 +93,7 @@ test("aggregates minute OHLCV exactly from actual trades", () => {
   assert.equal(candles[0].low_price, "60000");
   assert.equal(candles[0].close_price, "60100");
   assert.equal(candles[0].base_volume, "0.003");
-  assert.equal(candles[0].quote_volume, "180");
+  assert.equal(candles[0].quote_volume, "180.2");
   assert.equal(candles[0].trade_count, 2);
   assert.equal(candles[1].open_price, "59900");
 });
@@ -109,7 +110,7 @@ test("merges later trades into the same minute without losing OHLC order or volu
   assert.equal(merged.close_price, "60100");
   assert.equal(merged.high_price, "60100");
   assert.equal(merged.base_volume, "0.0015");
-  assert.equal(merged.quote_volume, "90");
+  assert.equal(merged.quote_volume, "90.05");
   assert.equal(merged.trade_count, 2);
 });
 
@@ -199,4 +200,74 @@ test("uses the supplied clock if scheduled time is missing or invalid", () => {
   const nonQuarterHourMs = Date.parse("2026-11-27T08:31:00.000Z");
   assert.equal(shouldRunTabdealQuarterHourScan({}, quarterHourMs), true);
   assert.equal(shouldRunTabdealQuarterHourScan({scheduledTime: "invalid"}, nonQuarterHourMs), false);
+});
+
+test("derives quote volume from price times quantity and ignores inconsistent quoteQty", () => {
+  const [row] = normalizeTabdealSpotTrades([
+    {id:"9001",time:now-1000,price:"61980.35",qty:"0.00010800",quoteQty:"0.00010762",isBuyerMaker:false}
+  ], now);
+  assert.equal(row.quoteQuantity, "6.6938778");
+});
+
+test("backfills a complete 240-minute window and marks zero-trade minutes explicitly", () => {
+  const end = Math.floor(now / minute) * minute;
+  const start = end - 240 * minute;
+  const rows = normalizeTabdealSpotTrades([
+    trade(1, start - 60_000, "60000", "0.001", "wrong"),
+    trade(2, start + 10 * minute + 10_000, "60100", "0.002", "wrong"),
+    trade(3, end - 30_000, "60200", "0.001", "wrong")
+  ], now);
+  const result = buildTabdealRecentTradeCandles(rows, now, 240, 4);
+  assert.equal(result.status, "complete");
+  assert.equal(result.candles.length, 240);
+  assert.equal(result.candles[0].coverage_status, "no_trade");
+  assert.equal(result.candles[0].trade_count, 0);
+  assert.equal(result.candles[0].open_price, "60000");
+  assert.equal(result.candles[10].coverage_status, "complete");
+  assert.equal(result.candles[10].trade_count, 1);
+  assert.equal(result.candles[11].coverage_status, "no_trade");
+  assert.equal(result.candles.at(-1).close_price, "60200");
+  assert.equal(result.candles.at(-1).continuity_epoch, 4);
+});
+
+test("refuses recent-window backfill when no trade exists before the window start", () => {
+  const end = Math.floor(now / minute) * minute;
+  const start = end - 240 * minute;
+  const rows = normalizeTabdealSpotTrades([
+    trade(10, start + 10_000, "60000"),
+    trade(11, end - 10_000, "60100")
+  ], now);
+  assert.equal(buildTabdealRecentTradeCandles(rows, now, 240).status, "insufficient_window_coverage");
+});
+
+test("refuses recent-window backfill from a stale recent-trades page", () => {
+  const end = Math.floor(now / minute) * minute;
+  const start = end - 240 * minute;
+  const rows = normalizeTabdealSpotTrades([
+    trade(20, start - minute, "60000"),
+    trade(21, now - 11 * minute, "60100")
+  ], now);
+  assert.equal(buildTabdealRecentTradeCandles(rows, now, 240).status, "stale_recent_trades");
+});
+
+test("counts explicit zero-trade minutes as covered and does not require a new trade in every minute", () => {
+  const state = {
+    last_successful_poll_at_ms: now - 10_000,
+    last_trade_time_ms: now - 8 * minute,
+    last_poll_status: "stale_latest_trade",
+    continuity_epoch: 4,
+    gap_count: 0,
+    recent_backfill_epoch: 4
+  };
+  const end = Math.floor(now / minute) * minute;
+  const rows = Array.from({length:60},(_,i)=>({
+    minute_open_ms:end-minute*(i+1),
+    continuity_epoch:4,
+    coverage_status:i%4===0?"no_trade":"complete",
+    trade_count:i%4===0?0:1
+  }));
+  const health=buildTabdealTradeCaptureHealth(state,rows,now);
+  assert.equal(health.captureReady,true);
+  assert.equal(health.latestTradeAgeMs,8*minute);
+  assert.equal(health.recentBackfillCompleted,true);
 });

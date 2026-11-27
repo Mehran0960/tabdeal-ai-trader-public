@@ -353,6 +353,10 @@ function formatTradeDecimal(units) {
 function addTradeDecimals(left, right) {
   return formatTradeDecimal(tradeDecimalUnits(left) + tradeDecimalUnits(right));
 }
+function multiplyTradeDecimals(left, right) {
+  const scale = 10n ** 18n;
+  return formatTradeDecimal((tradeDecimalUnits(left) * tradeDecimalUnits(right)) / scale);
+}
 function compareTradeDecimals(left, right) {
   const a = tradeDecimalUnits(left), b = tradeDecimalUnits(right);
   return a < b ? -1 : a > b ? 1 : 0;
@@ -367,14 +371,16 @@ export function normalizeTabdealSpotTrades(payload, capturedAtMs = Date.now()) {
     const id = tradeId(row.id);
     const price = tradeDecimal(row.price);
     const quantity = tradeDecimal(row.qty);
-    const quoteQuantity = tradeDecimal(row.quoteQty);
     const timeMs = Number(row.time);
-    if (!id || !price || !quantity || !quoteQuantity ||
+    if (!id || !price || !quantity ||
         !Number.isSafeInteger(timeMs) || timeMs <= 0 ||
         typeof row.isBuyerMaker !== "boolean" ||
         timeMs > capturedAtMs + 30_000) {
       throw new Error("tabdeal_trade_fields_invalid");
     }
+    // Tabdeal's recent-trades quoteQty is not consistent across the sampled rows.
+    // Derive quote volume from execution price × base quantity instead.
+    const quoteQuantity = multiplyTradeDecimals(price, quantity);
     return {id, price, quantity, quoteQuantity, timeMs, isBuyerMaker: row.isBuyerMaker};
   }).sort((a, b) => {
     const left = BigInt(a.id), right = BigInt(b.id);
@@ -452,6 +458,127 @@ export function aggregateTabdealTradeCandles(rows, continuityEpoch = 0) {
   return [...byMinute.values()].sort((a, b) => a.minute_open_ms - b.minute_open_ms);
 }
 
+
+export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowMinutes = 240, continuityEpoch = 0) {
+  if (!Array.isArray(rows) || ![60, 240].includes(windowMinutes)) {
+    throw new Error("tabdeal_recent_backfill_input_invalid");
+  }
+  if (rows.length < 2) return {status: "insufficient_recent_trades", candles: []};
+  const sorted = [...rows].sort((a, b) => a.timeMs - b.timeMs ||
+    (BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0));
+  const endMinuteMs = Math.floor(nowMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS;
+  const startMinuteMs = endMinuteMs - windowMinutes * TRADE_CANDLE_MS;
+  const earliest = sorted[0];
+  const latest = sorted.at(-1);
+
+  // Require an actual pre-window trade to seed carry-forward candles without inventing a price.
+  const priorTrade = [...sorted].reverse().find(row => row.timeMs < startMinuteMs);
+  if (!priorTrade || earliest.timeMs > startMinuteMs) {
+    return {status: "insufficient_window_coverage", candles: []};
+  }
+  // A stale endpoint response must not be mistaken for a current rolling window.
+  if (latest.timeMs < nowMs - 10 * TRADE_CANDLE_MS) {
+    return {status: "stale_recent_trades", candles: []};
+  }
+
+  const inWindow = sorted.filter(row => row.timeMs >= startMinuteMs && row.timeMs < endMinuteMs);
+  const actual = aggregateTabdealTradeCandles(inWindow, continuityEpoch);
+  const byMinute = new Map(actual.map(candle => [candle.minute_open_ms, candle]));
+  const candles = [];
+  let carryPrice = priorTrade.price;
+
+  for (let minuteOpenMs = startMinuteMs; minuteOpenMs < endMinuteMs; minuteOpenMs += TRADE_CANDLE_MS) {
+    const traded = byMinute.get(minuteOpenMs);
+    if (traded) {
+      const candle = {...traded, coverage_status: "complete"};
+      candles.push(candle);
+      carryPrice = candle.close_price;
+    } else {
+      candles.push({
+        symbol: TRADE_STREAM_SYMBOL,
+        minute_open_ms: minuteOpenMs,
+        open_price: carryPrice,
+        high_price: carryPrice,
+        low_price: carryPrice,
+        close_price: carryPrice,
+        base_volume: "0",
+        quote_volume: "0",
+        trade_count: 0,
+        first_trade_time_ms: 0,
+        last_trade_time_ms: 0,
+        first_trade_id: "",
+        last_trade_id: "",
+        continuity_epoch: continuityEpoch,
+        coverage_status: "no_trade"
+      });
+    }
+  }
+
+  return {
+    status: "complete",
+    windowMinutes,
+    windowStartMs: startMinuteMs,
+    windowEndMs: endMinuteMs,
+    pageTradeCount: rows.length,
+    windowTradeCount: inWindow.length,
+    noTradeMinuteCount: candles.filter(candle => candle.coverage_status === "no_trade").length,
+    candles
+  };
+}
+
+async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, continuityEpoch, lockToken, state) {
+  const fullWindow = buildTabdealRecentTradeCandles(rows, capturedAtMs, 240, continuityEpoch);
+  const backfill = fullWindow.status === "complete"
+    ? fullWindow
+    : buildTabdealRecentTradeCandles(rows, capturedAtMs, 60, continuityEpoch);
+  if (backfill.status !== "complete") return 0;
+
+  const existingRows = await env.DB.prepare(
+    "SELECT minute_open_ms,continuity_epoch,coverage_status FROM tabdeal_spot_candles_1m " +
+    "WHERE symbol=? AND minute_open_ms>=? AND minute_open_ms<?"
+  ).bind(TRADE_STREAM_SYMBOL, backfill.windowStartMs, backfill.windowEndMs).all();
+  const existingByMinute = new Map((existingRows.results || [])
+    .map(row => [Number(row.minute_open_ms), row]));
+  const newEpoch = Number(state.recent_backfill_epoch) !== Number(continuityEpoch);
+  const statements = [];
+
+  for (const candle of backfill.candles) {
+    const existing = existingByMinute.get(candle.minute_open_ms);
+    const existingIsUsable = existing &&
+      Number(existing.continuity_epoch) === Number(continuityEpoch) &&
+      ["complete", "no_trade"].includes(existing.coverage_status);
+    if (!newEpoch && existingIsUsable) continue;
+
+    statements.push(env.DB.prepare(
+      "INSERT OR REPLACE INTO tabdeal_spot_candles_1m " +
+      "(symbol,minute_open_ms,open_price,high_price,low_price,close_price,base_volume,quote_volume," +
+      "trade_count,first_trade_time_ms,last_trade_time_ms,first_trade_id,last_trade_id," +
+      "continuity_epoch,coverage_status,is_closed,updated_at_ms) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).bind(
+      TRADE_STREAM_SYMBOL, candle.minute_open_ms, candle.open_price, candle.high_price,
+      candle.low_price, candle.close_price, candle.base_volume, candle.quote_volume,
+      candle.trade_count, candle.first_trade_time_ms, candle.last_trade_time_ms,
+      candle.first_trade_id, candle.last_trade_id, candle.continuity_epoch,
+      candle.coverage_status, 1, capturedAtMs
+    ));
+  }
+
+  // Keep D1 batches small. The epoch marker is written only after all candle batches succeed,
+  // so a partial write is safe to retry on the next one-minute poll.
+  for (let i = 0; i < statements.length; i += 80) {
+    await env.DB.batch(statements.slice(i, i + 80));
+  }
+  if (newEpoch) {
+    await env.DB.prepare(
+      "UPDATE tabdeal_spot_trade_state SET recent_backfill_epoch=?, updated_at_ms=? " +
+      "WHERE symbol=? AND lease_token=?"
+    ).bind(continuityEpoch, capturedAtMs, TRADE_STREAM_SYMBOL, lockToken).run();
+    state.recent_backfill_epoch = continuityEpoch;
+  }
+  return statements.length;
+}
+
 export function mergeTabdealTradeCandle(existing, incoming) {
   if (!existing) return {...incoming};
   if (Number(existing.continuity_epoch) !== Number(incoming.continuity_epoch) ||
@@ -496,13 +623,14 @@ export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.n
   for (const row of rows) {
     if (Number(row.minute_open_ms) !== expected ||
         Number(row.continuity_epoch) !== Number(state.continuity_epoch) ||
-        row.coverage_status !== "complete") break;
+        !["complete", "no_trade"].includes(row.coverage_status)) break;
     consecutiveClosedMinutes++;
     expected -= TRADE_CANDLE_MS;
   }
-  const statusGood = ["captured", "no_new_trades"].includes(state.last_poll_status);
-  const sourceFresh = pollAgeMs !== null && pollAgeMs >= 0 && pollAgeMs <= 120_000 &&
-    latestTradeAgeMs !== null && latestTradeAgeMs >= 0 && latestTradeAgeMs <= TRADE_STREAM_MAX_AGE_MS;
+  const statusGood = ["captured", "no_new_trades", "stale_latest_trade"].includes(state.last_poll_status);
+  // A quiet market can legitimately have no recent trade; freshness is determined by the successful API poll,
+  // while latestTradeAgeMs remains a diagnostic field.
+  const sourceFresh = pollAgeMs !== null && pollAgeMs >= 0 && pollAgeMs <= 120_000;
   const captureReady = statusGood && sourceFresh && consecutiveClosedMinutes >= 60;
   return {
     status: captureReady ? "ready_for_extended_paper_validation"
@@ -515,7 +643,9 @@ export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.n
     continuityEpoch: Number(state.continuity_epoch || 0), consecutiveClosedMinutes,
     requiredForCaptureReady: 60, requiredForFourHourHistory: 240,
     captureReady, fourHourHistoryReady: statusGood && sourceFresh && consecutiveClosedMinutes >= 240,
-    candleInterval: "1m", historicalBackfillAvailable: false, liveTradingEnabled: false
+    candleInterval: "1m", recentWindowBackfillSupported: true,
+    recentBackfillCompleted: Number(state.recent_backfill_epoch) === Number(state.continuity_epoch),
+    historicalBackfillAvailable: false, liveTradingEnabled: false
   };
 }
 
@@ -586,13 +716,16 @@ export async function pollTabdealSpotTrades(env, {
       const values = {
         last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
         last_trade_id: latest.id, last_trade_time_ms: latest.timeMs,
-        eligible_from_minute_ms: nextCompleteTradeMinute(capturedAtMs),
+        eligible_from_minute_ms: Math.floor(capturedAtMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS,
         continuity_epoch: Number(state.continuity_epoch || 0), gap_count: Number(state.gap_count || 0),
         last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "baseline_started",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
       await saveTradeCaptureState(env, values, lockToken);
-      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+      const backfilledBars = await persistTabdealRecentTradeBackfill(
+        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+      );
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: backfilledBars, recentBackfillBars: backfilledBars, ordersPlaced: 0};
     }
 
     const coverage = assessTabdealTradePageCoverage(trades, state);
@@ -606,7 +739,10 @@ export async function pollTabdealSpotTrades(env, {
         last_poll_status: coverage.status, last_error_code: null, updated_at_ms: capturedAtMs
       };
       await saveTradeCaptureState(env, values, lockToken);
-      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+      const backfilledBars = await persistTabdealRecentTradeBackfill(
+        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+      );
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: backfilledBars, recentBackfillBars: backfilledBars, ordersPlaced: 0};
     }
 
     const newTrades = coverage.newTrades;
@@ -622,12 +758,17 @@ export async function pollTabdealSpotTrades(env, {
         last_error_code: null, updated_at_ms: capturedAtMs
       };
       await saveTradeCaptureState(env, values, lockToken);
-      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+      const backfilledBars = await persistTabdealRecentTradeBackfill(
+        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+      );
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: backfilledBars, recentBackfillBars: backfilledBars, ordersPlaced: 0};
     }
 
     const age = capturedAtMs - latest.timeMs;
-    const eligibleFrom = Number(state.eligible_from_minute_ms || nextCompleteTradeMinute(capturedAtMs));
-    const eligibleTrades = newTrades.filter(trade => trade.timeMs >= eligibleFrom);
+    // The trade-ID cursor already removes duplicates. Retain every unseen trade, including
+    // late-in-minute trades that arrive just after a poll boundary.
+    const eligibleFrom = Number(state.eligible_from_minute_ms || 0);
+    const eligibleTrades = newTrades;
     const buckets = aggregateTabdealTradeCandles(eligibleTrades, Number(state.continuity_epoch || 0));
     const statements = [];
     for (const bucket of buckets) {
@@ -671,6 +812,9 @@ export async function pollTabdealSpotTrades(env, {
       values.updated_at_ms, TRADE_STREAM_SYMBOL, lockToken
     ));
     await env.DB.batch(statements);
+    const backfilledBars = await persistTabdealRecentTradeBackfill(
+      env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+    );
 
     if (new Date(capturedAtMs).getUTCHours() === 3 && new Date(capturedAtMs).getUTCMinutes() === 0) {
       await env.DB.prepare(
@@ -679,7 +823,8 @@ export async function pollTabdealSpotTrades(env, {
     }
     return {
       status: values.last_poll_status, newTradeCount: newTrades.length,
-      eligibleTradeCount: eligibleTrades.length, barsUpdated: buckets.length, ordersPlaced: 0
+      eligibleTradeCount: eligibleTrades.length, barsUpdated: buckets.length + backfilledBars,
+      recentBackfillBars: backfilledBars, ordersPlaced: 0
     };
   } catch (error) {
     const message = String(error?.message || "");
