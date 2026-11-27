@@ -4,12 +4,12 @@ Last reviewed: 2026-11-27
 
 ## Decision
 
-Keep the execution universe deliberately narrow and stop using the private Nobitex repository's GitHub Actions runner as a dependency for the Tabdeal MVP. The public market-data/Paper watchlist is a bounded four-symbol extension; this does not approve four live trading instruments.
+Keep the execution universe deliberately narrow and stop using the private Nobitex repository's GitHub Actions runner as a dependency for the Tabdeal MVP. The public market-data/Paper watchlist is a bounded five-symbol extension; PAXGUSDT is an exploratory gold-backed candidate. This does not approve any of these instruments for live trading.
 
 The first operational lane is deliberately narrow:
 
 - Venue: **Tabdeal Spot only**.
-- Shadow trend instrument: **BTCUSDT only** (USDT quote; no IRT conversion). The exploratory local forward-Paper watchlist is BTCUSDT, ETHUSDT, SOLUSDT and XRPUSDT, each tracked independently.
+- Shadow trend instrument: **BTCUSDT only** (USDT quote; no IRT conversion). The exploratory local forward-Paper watchlist is BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT and PAXGUSDT, each tracked independently. PAXGUSDT is for research/Paper only pending current Tabdeal activity and order-book validation.
 - Decision timeframe: **closed 4h candles**.
 - Shadow trend context: **Kraken Spot XBT/USD closed 4h OHLC only** (USD reference; never an execution price). The offline/research history screen remains based on Binance Spot USDT candles collected by the public GitHub runner.
 - Execution confirmation: **fresh Tabdeal Spot REST order book and current Spot market metadata only**.
@@ -52,7 +52,7 @@ If Kraken retrieval is unavailable or the returned candle series is stale/gapped
 
 ## Exploratory local 1m forward-paper monitor
 
-The local four-symbol watchlist is evaluated independently with the same fixed, pre-registered diagnostic rule: 1m EMA(9/21/50) alignment, Wilder RSI(14) in 50–68, positive MACD(12/26/9) histogram, and 5m EMA(12) above EMA(26), with bounded ATR and minimum recent trade activity. This experiment is intentionally not a replacement for the 4h historical strategy or its OOS/FDR gate.
+The local five-symbol watchlist is evaluated independently with the same fixed, pre-registered diagnostic rule: 1m EMA(9/21/50) alignment, Wilder RSI(14) in 50–68, positive MACD(12/26/9) histogram, and 5m EMA(12) above EMA(26), with bounded ATR and minimum recent trade activity. This experiment is intentionally not a replacement for the 4h historical strategy or its OOS/FDR gate.
 
 The Worker records every evaluable closed minute, and only marks a BUY_CANDIDATE as paper-eligible when a public Spot book is valid, spread is no more than 30 bps, and both sides have at least 1,000 USDT depth within 0.25%. It uses a fixed 50 USDT virtual reference notional and records forward mark-outs at 5, 15 and 60 minutes measured from the actual virtual-entry observation. It uses the first real-trade closed 1m candle at/after each target within a maximum 3-minute delay; carry-forward no-trade bars are excluded and actual elapsed time is stored. Round-trip fee sensitivity is shown at 10/20/40 bps per side; these are stress assumptions, not a claim about the user's actual Tabdeal fee tier. Entry uses the observed ask plus a 5 bps buffer; exit modelling discounts the future candle close by half the entry spread plus 5 bps.
 
@@ -82,7 +82,7 @@ The official SDK documents Spot order submission at POST /api/v1/order, private 
 - This public repository is the source for public market data, reusable strategy/risk code and the sanitized adapter.
 - Cloudflare Worker secrets and D1 bindings stay in Cloudflare; none are copied into GitHub source.
 - The existing private nobitex-ai-trader repository is now a legacy/private operations and Nobitex archive. It must not be required for routine public-data collection, research or adapter unit tests.
-- The Cloudflare `tabdeal-mvp-shadow` Worker runs public Spot trade polls for BTCUSDT, ETHUSDT, SOLUSDT and XRPUSDT each minute, evaluates each symbol's local Paper signal only after that symbol's fresh poll, and runs the existing BTC Shadow trend/book scan every 15 minutes. D1 cursors, candles, signals and markouts remain isolated by symbol. D1 stores compact 1m aggregates plus deduplicated signal evaluations and fixed-horizon mark-outs; the Worker is not an order executor.
+- The Cloudflare `tabdeal-mvp-shadow` Worker runs public Spot trade polls for BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT and exploratory PAXGUSDT each minute, evaluates each symbol's local Paper signal only after that symbol's fresh poll, and runs the existing BTC Shadow trend/book scan every 15 minutes. D1 cursors, candles, signals and markouts remain isolated by symbol. D1 stores compact 1m aggregates plus deduplicated signal evaluations and fixed-horizon mark-outs; the Worker is not an order executor.
 - This source change requires the D1 schema migration and a matching Worker deployment/schedule update. Those operational changes remain read-only: no credentials, account access, or live order capability are added.
 
 ## Acceptance gates
