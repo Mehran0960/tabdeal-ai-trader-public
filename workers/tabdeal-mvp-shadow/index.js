@@ -284,10 +284,8 @@ export default {
       ).first();
       return row?.report_json ? json(JSON.parse(row.report_json)) : json({status: "no_shadow_scan_yet"}, 503);
     }
-    if (url.pathname === "/scan") {
-      const report = await runScan(env);
-      return json(report);
-    }
+    // Scans run only on the scheduled trigger. Do not expose a public endpoint
+    // that lets arbitrary callers fan out requests to upstream exchange APIs.
     return json({error: "not_found"}, 404);
   },
   async scheduled(_event, env, ctx) {
