@@ -9,13 +9,6 @@ const QUOTE_BUDGET = "1.00000000";
 const MAX_SPREAD_BPS = 30;
 const MAX_EXECUTION_SLIPPAGE_BPS = 5;
 const RECV_WINDOW_MS = 5_000;
-const CANDIDATE_SYMBOLS = [
-  "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "PAXGUSDT",
-  "BNBUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "LTCUSDT", "BCHUSDT",
-  "DOTUSDT", "AVAXUSDT", "XLMUSDT", "SHIBUSDT", "TONUSDT", "APTUSDT",
-  "NEARUSDT", "UNIUSDT", "FILUSDT", "ETCUSDT", "ATOMUSDT", "PEPEUSDT",
-  "SUIUSDT", "ARBUSDT", "OPUSDT", "AAVEUSDT", "MKRUSDT", "INJUSDT"
-];
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -89,9 +82,9 @@ async function privateGet(path, params, apiKey, apiSecret) {
   if (!response.ok) throw new Error("private_http_" + response.status);
   return data;
 }
-function normalizedSymbolList(payload) {
+export function normalizedSymbolList(payload) {
   if (!Array.isArray(payload)) throw new Error("exchange_info_schema_invalid");
-  return payload.filter(info =>
+  const active = payload.filter(info =>
     isRecord(info) &&
     info.quoteAsset === QUOTE_ASSET &&
     info.status === "TRADING" &&
@@ -99,10 +92,29 @@ function normalizedSymbolList(payload) {
     Array.isArray(info.permissions) &&
     info.permissions.includes("SPOT") &&
     typeof info.symbol === "string" &&
-    CANDIDATE_SYMBOLS.includes(info.symbol) &&
     Array.isArray(info.orderTypes) &&
     info.orderTypes.includes("LIMIT")
   );
+  const bySymbol = new Map();
+  const duplicates = new Set();
+  for (const info of active) {
+    if (bySymbol.has(info.symbol)) duplicates.add(info.symbol);
+    else bySymbol.set(info.symbol, info);
+  }
+  return [...bySymbol.values()].filter(info => !duplicates.has(info.symbol));
+}
+async function mapLimit(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({length: Math.min(concurrency, items.length)}, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 export function sizeWithinOneUsdt(info, depth) {
   const asks = parseLevels(depth?.asks);
@@ -207,19 +219,22 @@ async function main() {
     throw new Error("free_usdt_below_one");
   }
   const listed=normalizedSymbolList(markets);
-  const rows=[];
-  for (const info of listed) {
+  const accountOpenOrders=await privateGet("/openOrders",{},apiKey,apiSecret);
+  if (!Array.isArray(accountOpenOrders)) throw new Error("account_open_orders_schema_invalid");
+  const openOrderSymbols=new Set(accountOpenOrders
+    .filter(row=>isRecord(row)&&typeof row.symbol==="string")
+    .map(row=>row.symbol));
+  const rows=await mapLimit(listed,5,async info=>{
     try {
       const depth=await publicGet("/depth?symbol="+encodeURIComponent(info.symbol)+"&limit=20");
       const size=sizeWithinOneUsdt(info,depth);
       if (!size.ok) {
-        rows.push({symbol:info.symbol,ok:false,reason:size.reason,
+        return {symbol:info.symbol,ok:false,reason:size.reason,
           ...(size.spreadBps!==undefined?{spreadBps:size.spreadBps}:{}),
           ...(size.roundedNotional?{roundedNotional:size.roundedNotional}:{}),
           ...(size.minNotional?{minNotional:size.minNotional}:{}),
           ...(size.stepSize?{stepSize:size.stepSize}:{}),
-          ...(size.quantity?{quantity:size.quantity}:{})});
-        continue;
+          ...(size.quantity?{quantity:size.quantity}:{})};
       }
       const trades=await publicGet("/trades?symbol="+encodeURIComponent(info.symbol)+"&limit=100");
       let recentQuoteVolume=0, latestTradeAgeMs=null;
@@ -233,19 +248,16 @@ async function main() {
         if (times.length) latestTradeAgeMs=Math.max(0,Date.now()-Math.max(...times));
       }
       if (!Number.isFinite(latestTradeAgeMs) || latestTradeAgeMs > 60_000 || recentQuoteVolume <= 0) {
-        rows.push({...size,ok:false,reason:"recent_trade_activity_stale_or_missing",latestTradeAgeMs,recentQuoteVolume100Trades:recentQuoteVolume});
-        continue;
+        return {...size,ok:false,reason:"recent_trade_activity_stale_or_missing",latestTradeAgeMs,recentQuoteVolume100Trades:recentQuoteVolume};
       }
-      const openOrders=await privateGet("/openOrders",{symbol:info.symbol},apiKey,apiSecret);
-      if (!Array.isArray(openOrders) || openOrders.length!==0) {
-        rows.push({...size,ok:false,reason:"existing_open_orders",openOrderCount:Array.isArray(openOrders)?openOrders.length:null});
-        continue;
+      if (openOrderSymbols.has(info.symbol)) {
+        return {...size,ok:false,reason:"existing_open_orders",openOrderCount:accountOpenOrders.filter(row=>row?.symbol===info.symbol).length};
       }
-      rows.push({...size,ok:true,recentQuoteVolume100Trades:recentQuoteVolume,latestTradeAgeMs,openOrderCount:0});
+      return {...size,ok:true,recentQuoteVolume100Trades:recentQuoteVolume,latestTradeAgeMs,openOrderCount:0};
     } catch (error) {
-      rows.push({symbol:info.symbol,ok:false,reason:String(error?.message||error).slice(0,100)});
+      return {symbol:info.symbol,ok:false,reason:String(error?.message||error).slice(0,100)};
     }
-  }
+  });
   const candidates=rows.filter(row=>row.ok).sort((a,b)=>
     (b.recentQuoteVolume100Trades??0)-(a.recentQuoteVolume100Trades??0) ||
     (a.spreadBps??Infinity)-(b.spreadBps??Infinity) ||

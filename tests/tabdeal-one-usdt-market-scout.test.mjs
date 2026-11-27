@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {sizeWithinOneUsdt} from "../scripts/tabdeal-one-usdt-market-scout.mjs";
+import {sizeWithinOneUsdt, normalizedSymbolList} from "../scripts/tabdeal-one-usdt-market-scout.mjs";
 
 function market({minNotional="1.00000000",stepSize="0.0000000001",minQty="0.0000000001",tickSize="0.0001"}={}) {
   return {
@@ -17,6 +17,28 @@ function market({minNotional="1.00000000",stepSize="0.0000000001",minQty="0.0000
 function depth({bid="0.4999",ask="0.5000",askQty="10"}={}) {
   return {bids:[[bid,"10"]],asks:[[ask,askQty]]};
 }
+
+test("discovers active USDT Spot LIMIT markets outside the former curated shortlist",()=>{
+  const externalPair = {
+    symbol:"NEWPAIRUSDT",baseAsset:"NEWPAIR",quoteAsset:"USDT",
+    status:"TRADING",isSpotTradingAllowed:true,permissions:["SPOT"],
+    orderTypes:["LIMIT","MARKET"]
+  };
+  const inactivePair = {...externalPair,symbol:"INACTIVEUSDT",status:"BREAK"};
+  const nonSpotPair = {...externalPair,symbol:"MARGINONLYUSDT",permissions:["MARGIN"]};
+  const result = normalizedSymbolList([externalPair,inactivePair,nonSpotPair]);
+  assert.deepEqual(result.map(row=>row.symbol),["NEWPAIRUSDT"]);
+});
+
+test("excludes duplicate exchange metadata records for the same market",()=>{
+  const pair = {
+    symbol:"NEWPAIRUSDT",baseAsset:"NEWPAIR",quoteAsset:"USDT",
+    status:"TRADING",isSpotTradingAllowed:true,permissions:["SPOT"],
+    orderTypes:["LIMIT"]
+  };
+  const result = normalizedSymbolList([pair,{...pair}]);
+  assert.equal(result.some(row=>row.symbol==="NEWPAIRUSDT"),false);
+});
 
 test("accepts a precise limit quantity whose rounded quote notional is exactly 1 USDT",()=>{
   const result=sizeWithinOneUsdt(market(),depth());
