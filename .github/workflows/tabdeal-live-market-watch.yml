@@ -10,8 +10,11 @@ on:
       - "tests/tabdeal-live-market-watch-irt.test.mjs"
       - ".github/workflows/tabdeal-live-market-watch.yml"
       - "package.json"
-  schedule:
-    - cron: "*/5 * * * *"
+  # A completed successful session starts the next bounded session. This avoids
+  # queuing dozens of 335-minute jobs behind a five-minute cron schedule.
+  workflow_run:
+    workflows: ["Tabdeal Continuous Spot Market Watch"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       mode:
@@ -42,7 +45,9 @@ concurrency:
 
 jobs:
   watch:
-    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    # Continue the chain only after a successful previous session. A broken
+    # workflow must not create an infinite retry loop.
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
@@ -71,7 +76,7 @@ jobs:
           INPUT_DURATION: ${{ inputs.duration_minutes || '3' }}
           INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1200' }}
         run: |
-          if [ "$EVENT_NAME" = "schedule" ]; then
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
             echo "mode=continuous" >> "$GITHUB_OUTPUT"
             echo "duration=335" >> "$GITHUB_OUTPUT"
           elif [ "$EVENT_NAME" = "push" ]; then
@@ -104,4 +109,3 @@ jobs:
           path: artifacts/tabdeal-live-market-watch/latest.json
           if-no-files-found: warn
           retention-days: 7
-

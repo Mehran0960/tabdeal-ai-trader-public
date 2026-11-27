@@ -94,3 +94,14 @@ Requires all data and strategy gates to pass, written verification of Tabdeal ac
 - The 3-minute probe did not warm the 16-minute contiguous history required for an opportunity scan, so the latest status was warming_up and no candidate was reported. No real orders, virtual orders, account reads or fund movements occurred. Rolling state for all 1,017 markets was checkpointed successfully.
 - The watcher is scheduled every 5 minutes, with a 335-minute maximum observation session per GitHub-hosted run. This is near-continuous best-effort monitoring, not a guaranteed 24/7 real-time daemon; GitHub limits hosted jobs to six hours and documents that scheduled runs can be delayed or dropped. See the [GitHub Actions limits](https://docs.github.com/en/actions/reference/limits) and [workflow schedule syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax).
 - **Decision:** data coverage is now operational across the current full Spot universe, but the system is still a watcher, not an auto-trader. Live swaps remain disabled until order-book synchronization semantics, quote-unit definitions, verified fees, profitable out-of-sample/forward evidence, the two-leg SELL/BUY executor, and failure reconciliation are all proven.
+
+
+
+## Continuous full-universe market watch — 2026-11-27
+
+- Replaced the five-minute cron schedule for the 335-minute watcher with a completion-triggered chain: each successful `Tabdeal Continuous Spot Market Watch` run starts the next bounded session. This avoids accumulating queued long-running jobs and substantially reduces monitoring gaps on GitHub-hosted runners.
+- A push to the watcher code starts a short probe; after a successful probe, the chain moves into 335-minute continuous sessions. A manual `workflow_dispatch` can still request probe or continuous mode.
+- The chain only restarts after a successful prior run. A failed workflow does not recursively retry forever; it requires inspection and manual restart.
+- Concurrency remains serialized and rolling market history is checkpointed to `signal-history`. The current cap remains 1,200 active Spot markets; the latest verified probe covered 1,017/1,017.
+- This is best-effort near-continuous monitoring, not a guaranteed 24/7 daemon: GitHub runner startup, completion-event delivery, hosted-runner limits and exchange disconnects can still create gaps. The watcher is observation-only; no account balances are read and no exchange orders or funds movements are performed.
+- **Next gates before any automated swap:** confirm Tabdeal order-book snapshot/delta and sequence semantics; verify quote-unit settlement and fee schedule; establish a fresh profitable forward-Paper record after costs; then separately implement and audit balance-aware two-leg execution, partial-fill recovery, idempotency and hard risk controls. The 20% drawdown limit is not relaxed.
