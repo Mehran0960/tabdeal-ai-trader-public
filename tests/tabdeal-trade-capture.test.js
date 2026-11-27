@@ -49,17 +49,17 @@ test("detects a capped recent-trades page that cannot cover the previous poll in
 
 test("accepts an overlapping capped page and returns only unseen trades", () => {
   const state = {
-    last_trade_id: "100",
-    last_trade_time_ms: now - 40_000,
+    last_trade_id: "1000",
+    last_trade_time_ms: now - 30_000,
     last_successful_poll_at_ms: now - 30_000
   };
-  const rows = Array.from({length: 1000}, (_, i) =>
-    trade(i + 1, now - 60_000 + i, "60000")
+  const rows = Array.from({length: 999}, (_, i) =>
+    trade(i + 1, now - 60_000 + i * 20, "60000")
   );
-  rows[999] = trade(101, now - 1_000, "60010");
+  rows.push(trade(1001, now - 1_000, "60010"));
   const result = assessTabdealTradePageCoverage(rows, state);
   assert.equal(result.status, "complete");
-  assert.deepEqual(result.newTrades.map(row => row.id), ["101"]);
+  assert.deepEqual(result.newTrades.map(row => row.id), ["1001"]);
 });
 
 test("aggregates minute OHLCV exactly from actual trades", () => {
