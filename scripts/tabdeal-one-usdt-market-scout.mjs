@@ -232,6 +232,10 @@ async function main() {
         }
         if (times.length) latestTradeAgeMs=Math.max(0,Date.now()-Math.max(...times));
       }
+      if (!Number.isFinite(latestTradeAgeMs) || latestTradeAgeMs > 60_000 || recentQuoteVolume <= 0) {
+        rows.push({...size,ok:false,reason:"recent_trade_activity_stale_or_missing",latestTradeAgeMs,recentQuoteVolume100Trades:recentQuoteVolume});
+        continue;
+      }
       const openOrders=await privateGet("/openOrders",{symbol:info.symbol},apiKey,apiSecret);
       if (!Array.isArray(openOrders) || openOrders.length!==0) {
         rows.push({...size,ok:false,reason:"existing_open_orders",openOrderCount:Array.isArray(openOrders)?openOrders.length:null});
