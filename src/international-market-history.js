@@ -183,9 +183,14 @@ export function normalizeTabdealBook({symbol, market, depth, capturedAtMs}) {
     askDepthTop5Quote:quoteDepth(asks),
     bidLevelCount:bids.length,
     askLevelCount:asks.length,
+    // Preserve only the best five levels: enough for conservative forward-Paper
+    // fill simulation without turning every 15-minute snapshot into a full L2 archive.
+    bidLevelsTop5:bids.slice(0,5).map(row=>[String(row.price),String(row.quantity)]),
+    askLevelsTop5:asks.slice(0,5).map(row=>[String(row.price),String(row.quantity)]),
     updateId:depth.lastUpdateId===undefined?null:String(depth.lastUpdateId),
     marketRules:{
       minQty:lot?.minQty??null,
+      maxQty:lot?.maxQty??null,
       stepSize:lot?.stepSize??null,
       minNotional:notional?.minNotional??null,
       tickSize:price?.tickSize??null,

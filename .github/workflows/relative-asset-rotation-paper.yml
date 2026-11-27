@@ -1,0 +1,78 @@
+name: Relative-asset rotation research and forward Paper
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/relative-asset-rotation.js"
+      - "scripts/relative-asset-rotation.mjs"
+      - "src/international-market-history.js"
+      - "scripts/append-international-market-history.mjs"
+      - "tests/relative-asset-rotation.test.mjs"
+      - ".github/workflows/relative-asset-rotation-paper.yml"
+  schedule:
+    - cron: "10 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: relative-asset-rotation-paper
+  cancel-in-progress: false
+
+jobs:
+  research-and-paper:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax-check the relative rotation engine and runner
+        run: |
+          node --check src/relative-asset-rotation.js
+          node --check scripts/relative-asset-rotation.mjs
+          node --test tests/relative-asset-rotation.test.mjs
+      - name: Evaluate fixed strategy against synchronized 4h history and run forward Paper only
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          node scripts/relative-asset-rotation.mjs \
+            --history-dir signal-history/data/international-market-history \
+            --state signal-history/data/relative-asset-rotation/state.json \
+            --output artifacts/relative-asset-rotation/latest.json
+      - name: Upload sanitized rotation research and Paper report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relative-asset-rotation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/relative-asset-rotation/latest.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Persist Paper state and virtual trade ledger only
+        if: success()
+        shell: bash
+        run: |
+          cd signal-history
+          if [ ! -f data/relative-asset-rotation/state.json ]; then
+            echo "No promoted Paper state exists; research-only run."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/relative-asset-rotation/state.json
+          if git diff --cached --quiet; then
+            echo "Paper state unchanged."
+          else
+            git commit -m "paper: update relative asset rotation ledger"
+            git push origin signal-history
+          fi

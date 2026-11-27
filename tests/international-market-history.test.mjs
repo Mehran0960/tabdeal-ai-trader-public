@@ -69,7 +69,7 @@ test("normalizes Tabdeal USDT Spot depth and its public execution filters",()=>{
     symbol:"BTCUSDT",baseAsset:"BTC",status:"TRADING",isSpotTradingAllowed:true,
     permissions:["SPOT"],quoteAsset:"USDT",
     filters:[
-      {filterType:"LOT_SIZE",minQty:"0.0001",stepSize:"0.0001"},
+      {filterType:"LOT_SIZE",minQty:"0.0001",maxQty:"100",stepSize:"0.0001"},
       {filterType:"MIN_NOTIONAL",minNotional:"10"},
       {filterType:"PRICE_FILTER",tickSize:"0.01"}
     ]
@@ -84,6 +84,9 @@ test("normalizes Tabdeal USDT Spot depth and its public execution filters",()=>{
   assert.equal(book.bestBid,100);
   assert.equal(book.bestAsk,101);
   assert.equal(book.marketRules.minNotional,"10");
+  assert.equal(book.marketRules.maxQty,"100");
+  assert.deepEqual(book.bidLevelsTop5,[["100","2"],["99","3"]]);
+  assert.deepEqual(book.askLevelsTop5,[["101","1"],["102","2"]]);
   assert.equal(book.quoteUnit,"USDT");
 });
 
