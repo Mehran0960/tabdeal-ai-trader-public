@@ -166,8 +166,8 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     openOrdersBefore: openOrders.length
   };
 }
-async function publicGet(path) {
-  const response = await fetch(API_BASE + "/r/api/v1" + path, {
+async function publicGet(path, fetchImpl) {
+  const response = await fetchImpl(API_BASE + "/r/api/v1" + path, {
     method: "GET",
     headers: {accept: "application/json"},
     redirect: "error",
@@ -180,8 +180,8 @@ function signedGetUrl(path, params, apiSecret) {
   const query = signParams({...params, timestamp: Date.now(), recvWindow: RECV_WINDOW_MS}, apiSecret);
   return API_BASE + "/r/api/v1" + path + "?" + query.toString();
 }
-async function signedGet(path, params, apiKey, apiSecret) {
-  const response = await fetch(signedGetUrl(path, params, apiSecret), {
+async function signedGet(path, params, apiKey, apiSecret, fetchImpl) {
+  const response = await fetchImpl(signedGetUrl(path, params, apiSecret), {
     method: "GET",
     headers: {accept: "application/json", "X-MBX-APIKEY": apiKey},
     redirect: "error",
@@ -211,7 +211,7 @@ function normalizedOrder(data, fallbackClientOrderId) {
     fills
   };
 }
-async function lookupByClientId({clientId, apiKey, apiSecret}) {
+async function lookupByClientId({clientId, apiKey, apiSecret, fetchImpl}) {
   const {response, data} = await signedGet("/order", {
     symbol: ONE_SHOT_SYMBOL,
     origClientOrderId: clientId
@@ -254,13 +254,13 @@ export async function runTabdealOneShotBuy({
   let preflight;
   try {
     const [exchangeInfo, depth] = await Promise.all([
-      publicGet("/exchangeInfo?symbol=" + ONE_SHOT_SYMBOL),
-      publicGet("/depth?symbol=" + ONE_SHOT_SYMBOL + "&limit=20")
+      publicGet("/exchangeInfo?symbol=" + ONE_SHOT_SYMBOL, fetchImpl),
+      publicGet("/depth?symbol=" + ONE_SHOT_SYMBOL + "&limit=20", fetchImpl)
     ]);
     const info = findSymbolInfo(exchangeInfo);
-    const accountResult = await signedGet("/account", {}, apiKey, apiSecret);
+    const accountResult = await signedGet("/account", {}, apiKey, apiSecret, fetchImpl);
     if (!accountResult.response.ok) throw new Error("account_read_http_" + accountResult.response.status);
-    const ordersResult = await signedGet("/openOrders", {symbol: ONE_SHOT_SYMBOL}, apiKey, apiSecret);
+    const ordersResult = await signedGet("/openOrders", {symbol: ONE_SHOT_SYMBOL}, apiKey, apiSecret, fetchImpl);
     if (!ordersResult.response.ok) throw new Error("open_orders_read_http_" + ordersResult.response.status);
     const openOrders = normalizeOpenOrders(ordersResult.data);
     preflight = buildPreflight({
@@ -279,7 +279,7 @@ export async function runTabdealOneShotBuy({
   }
 
   try {
-    const priorOrder = await lookupByClientId({clientId, apiKey, apiSecret});
+    const priorOrder = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl});
     if (priorOrder) {
       return {...base, result: "existing_order_reconciled_no_resubmit", preflight, order: priorOrder, orderSubmitted: false};
     }
