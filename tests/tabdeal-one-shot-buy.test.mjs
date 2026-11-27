@@ -4,6 +4,7 @@ import {createHmac} from "node:crypto";
 import {
   ONE_SHOT_SYMBOL,
   ONE_SHOT_QUOTE_AMOUNT,
+  ONE_SHOT_CLIENT_ORDER_ID,
   runTabdealOneShotBuy,
   claimOneShotExecutionLock,
   safeOneShotSummary
@@ -30,12 +31,23 @@ function validExchangeInfo(overrides = {}) {
     quoteOrderQtyMarketAllowed: true,
     permissions: ["SPOT"],
     filters: [
-      {filterType: "MIN_NOTIONAL", minNotional: "1", applyToMarket: true},
+      {filterType: "MIN_NOTIONAL", minNotional: "0.5", applyToMarket: true},
       {filterType: "MARKET_LOT_SIZE", minQty: "0.000001", maxQty: "100", stepSize: "0.000001"}
     ],
     ...overrides
   }];
 }
+function validLimitExchangeInfo({minNotional = "0.5"} = {}) {
+  return validExchangeInfo({
+    quoteOrderQtyMarketAllowed: false,
+    filters: [
+      {filterType: "MIN_NOTIONAL", minNotional, applyToMarket: false},
+      {filterType: "LOT_SIZE", minQty: "0.000001", maxQty: "100", stepSize: "0.00000001"},
+      {filterType: "PRICE_FILTER", minPrice: "0.01", maxPrice: "10000000", tickSize: "0.01"}
+    ]
+  });
+}
+
 function validDepth(overrides = {}) {
   return {
     lastUpdateId: 123,
@@ -47,6 +59,8 @@ function validDepth(overrides = {}) {
 function validAccount(overrides = {}) {
   return {
     accountType: "SPOT",
+    makerCommission: 40,
+    takerCommission: 40,
     canTrade: true,
     permissions: ["SPOT"],
     balances: [{asset: "USDT", free: "1.00000000", freeze: "0"}],
@@ -57,11 +71,11 @@ function filledOrder() {
   return {
     symbol: "BTCUSDT",
     orderId: 7001,
-    clientOrderId: "t1shot-12345",
+    clientOrderId: ONE_SHOT_CLIENT_ORDER_ID,
     price: "0",
     origQty: "0.00001111",
     executedQty: "0.00001111",
-    cummulativeQuoteQty: "1.00000000",
+    cummulativeQuoteQty: "0.99601593",
     status: "FILLED",
     type: "MARKET",
     side: "BUY",
@@ -135,11 +149,11 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
-  assert.equal(report.result, "order_accepted_reconciled");
+  assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.orderSubmitted, true);
   assert.equal(report.order.symbol, ONE_SHOT_SYMBOL);
   assert.equal(report.order.status, "FILLED");
-  assert.equal(report.order.cumulativeQuoteQuantity, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.order.cumulativeQuoteQuantity, report.preflight.quoteOrderQty);
   const exchangeInfoCall = calls.find(call => call.url.pathname.endsWith("/exchangeInfo"));
   assert.ok(exchangeInfoCall);
   assert.equal(exchangeInfoCall.url.search, "");
@@ -149,8 +163,8 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(params.get("symbol"), "BTCUSDT");
   assert.equal(params.get("side"), "BUY");
   assert.equal(params.get("type"), "MARKET");
-  assert.equal(params.get("quoteOrderQty"), ONE_SHOT_QUOTE_AMOUNT);
-  assert.equal(params.get("newClientOrderId"), "t1shot-12345");
+  assert.equal(params.get("quoteOrderQty"), report.preflight.quoteOrderQty);
+  assert.equal(params.get("newClientOrderId"), ONE_SHOT_CLIENT_ORDER_ID);
   assert.equal(params.has("quantity"), false);
   assert.equal(report.automaticRetry, false);
   assert.equal(report.sellOrderSent, false);
@@ -158,16 +172,61 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(report.withdrawalOrTransferSent, false);
 });
 
-test("aborts before POST when quoteOrderQty market buys are not allowed", async () => {
+test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled", async () => {
   const {fetchImpl, calls} = makeFetch({
-    exchangeInfo: validExchangeInfo({quoteOrderQtyMarketAllowed: false})
+    exchangeInfo: validLimitExchangeInfo(),
+    postBody: {
+      ...filledOrder(),
+      price: "90045.00",
+      origQty: "0.00001110",
+      executedQty: "0.00001110",
+      cummulativeQuoteQty: "0.99949950",
+      type: "LIMIT"
+    }
+  });
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "order_filled_reconciled");
+  assert.equal(report.preflight.type, "LIMIT");
+  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.quoteBudget);
+  assert.ok(report.preflight.quoteBudget < 1);
+  assert.equal(report.preflight.maxTotalDebitQuote, 1);
+  const post = calls.find(call => call.method === "POST");
+  assert.ok(post);
+  const params = signedBodyParams(post);
+  assert.equal(params.get("type"), "LIMIT");
+  assert.equal(params.has("quoteOrderQty"), false);
+  assert.equal(params.get("price"), report.preflight.price);
+  assert.equal(params.get("quantity"), report.preflight.quantity);
+  assert.ok(Number(params.get("price")) * Number(params.get("quantity")) <= report.preflight.quoteBudget);
+  assert.equal(params.get("timeInForce"), null);
+});
+
+test("blocks the LIMIT fallback when the venue minimum cannot fit under one USDT", async () => {
+  const {fetchImpl, calls} = makeFetch({
+    exchangeInfo: validLimitExchangeInfo({minNotional: "1.01"})
   });
   const report = await runTabdealOneShotBuy({
     claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "preflight_blocked");
-  assert.equal(report.reason, "quote_order_qty_market_not_allowed");
+  assert.equal(report.reason, "limit_notional_below_venue_minimum");
+  assert.equal(calls.filter(call => call.method === "POST").length, 0);
+});
+
+test("blocks if the account commission rates are unavailable", async () => {
+  const {fetchImpl, calls} = makeFetch({
+    account: validAccount({makerCommission: undefined, takerCommission: undefined})
+  });
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "preflight_blocked");
+  assert.equal(report.reason, "account_spot_commission_rate_unavailable");
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 

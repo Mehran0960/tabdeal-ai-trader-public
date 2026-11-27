@@ -8,6 +8,7 @@ export const ONE_SHOT_SYMBOL = "BTCUSDT";
 export const ONE_SHOT_QUOTE_ASSET = "USDT";
 export const ONE_SHOT_QUOTE_AMOUNT = "1.00000000";
 export const ONE_SHOT_CLIENT_ID_PREFIX = "t1shot-";
+export const ONE_SHOT_CLIENT_ORDER_ID = "t1shot-btcusdt-20261127";
 export const ONE_SHOT_LOCK_REF = "refs/tags/tabdeal-one-shot-1usdt-20261127";
 const MAX_SPREAD_BPS = 30;
 const MAX_BOOK_SLIPPAGE_BPS = 5;
@@ -25,10 +26,8 @@ function apiCode(data) {
   return isRecord(data) && (typeof data.code === "number" || typeof data.code === "string")
     ? data.code : null;
 }
-function clientOrderId(runId) {
-  const id = String(runId ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
-  if (!id) throw new Error("github_run_id_missing");
-  return ONE_SHOT_CLIENT_ID_PREFIX + id;
+function clientOrderId() {
+  return ONE_SHOT_CLIENT_ORDER_ID;
 }
 function signParams(params, secret) {
   const query = new URLSearchParams();
@@ -76,6 +75,108 @@ function getBalances(account) {
   if (!Array.isArray(account?.balances)) throw new Error("account_balances_missing");
   return account.balances;
 }
+function precisionOf(value) {
+  const text = String(value ?? "");
+  const point = text.indexOf(".");
+  return point < 0 ? 0 : text.length - point - 1;
+}
+function decimalUnits(value, precision) {
+  const [whole, fraction = ""] = String(value).split(".");
+  if (fraction.length > precision && /[1-9]/.test(fraction.slice(precision))) {
+    throw new Error("decimal_precision_exceeds_filter");
+  }
+  return BigInt(whole) * (10n ** BigInt(precision)) +
+    BigInt((fraction.slice(0, precision) + "0".repeat(precision)).slice(0, precision) || "0");
+}
+function unitsDecimal(value, precision) {
+  const base = 10n ** BigInt(precision);
+  const whole = value / base;
+  const fraction = (value % base).toString().padStart(precision, "0");
+  return precision ? whole.toString() + "." + fraction : whole.toString();
+}
+function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
+  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("LIMIT")) {
+    throw new Error("limit_order_type_not_allowed");
+  }
+  const lot = filterOf(symbolInfo, "LOT_SIZE");
+  const minQty = positive(lot?.minQty);
+  const maxQty = positive(lot?.maxQty);
+  const stepSize = positive(lot?.stepSize);
+  const priceFilter = filterOf(symbolInfo, "PRICE_FILTER");
+  const tickSize = positive(priceFilter?.tickSize);
+  const minPrice = positive(priceFilter?.minPrice);
+  const maxPrice = positive(priceFilter?.maxPrice);
+  if (!minQty || !stepSize || !tickSize) throw new Error("limit_lot_or_price_filter_missing");
+
+  const pricePrecision = Math.max(precisionOf(bestAskText), precisionOf(priceFilter.tickSize));
+  const quantityPrecision = Math.max(
+    precisionOf(lot.stepSize),
+    precisionOf(lot.minQty),
+    precisionOf(lot.maxQty ?? lot.stepSize)
+  );
+  if (pricePrecision > 12 || quantityPrecision > 12) throw new Error("filter_precision_unsupported");
+
+  const bestAskUnits = decimalUnits(bestAskText, pricePrecision);
+  const tickUnits = decimalUnits(priceFilter.tickSize, pricePrecision);
+  const maxPriceUnits = (bestAskUnits * BigInt(10_000 + MAX_BOOK_SLIPPAGE_BPS)) / 10_000n;
+  const limitPriceUnits = (maxPriceUnits / tickUnits) * tickUnits;
+  if (limitPriceUnits < bestAskUnits) throw new Error("no_valid_limit_tick_within_slippage_cap");
+  const limitPrice = unitsDecimal(limitPriceUnits, pricePrecision);
+  const limitPriceNumber = Number(limitPrice);
+  if ((minPrice !== null && limitPriceNumber < minPrice) ||
+      (maxPrice !== null && limitPriceNumber > maxPrice)) {
+    throw new Error("limit_price_outside_price_filter");
+  }
+
+  const stepUnits = decimalUnits(lot.stepSize, quantityPrecision);
+  const capUnits = decimalUnits(quoteBudget, 8);
+  const scale = 10n ** BigInt(pricePrecision + quantityPrecision);
+  const quoteScale = 10n ** 8n;
+  const maxQuantityUnits = (capUnits * scale) / (quoteScale * limitPriceUnits);
+  const quantityUnits = (maxQuantityUnits / stepUnits) * stepUnits;
+  const minimumQuantityUnits = decimalUnits(lot.minQty, quantityPrecision);
+  if (quantityUnits < minimumQuantityUnits ||
+      (maxQty !== null && Number(unitsDecimal(quantityUnits, quantityPrecision)) > maxQty)) {
+    throw new Error("one_usdt_limit_quantity_outside_lot_filter");
+  }
+  const quantity = unitsDecimal(quantityUnits, quantityPrecision);
+  const notional = limitPriceNumber * Number(quantity);
+  if (!Number.isFinite(notional) || notional <= 0 ||
+      notional > Number(quoteBudget) + 1e-12) {
+    throw new Error("limit_notional_exceeds_one_usdt");
+  }
+
+  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
+  const minNotional = positive(minNotionalFilter?.minNotional);
+  if (!minNotional || notional + 1e-10 < minNotional ||
+      minNotional > Number(quoteBudget)) {
+    throw new Error("limit_notional_below_venue_minimum");
+  }
+
+  const visibleAskQuantity = asks
+    .filter(level => level.price <= limitPriceNumber)
+    .reduce((sum, level) => sum + level.quantity, 0);
+  if (!Number.isFinite(visibleAskQuantity) ||
+      visibleAskQuantity + 1e-15 < Number(quantity)) {
+    throw new Error("visible_ask_quantity_below_limit_order_size");
+  }
+
+  return {
+    type: "LIMIT",
+    quantity,
+    price: limitPrice,
+    maxQuoteNotional: Number(quoteBudget),
+    maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
+    quoteBudget,
+    estimatedQuoteNotional: notional,
+    minNotional,
+    lotStepSize: lot.stepSize,
+    lotMinQty: lot.minQty,
+    priceTickSize: priceFilter.tickSize,
+    timeInForce: "GTC_DEFAULT",
+    executionMode: "price_capped_limit"
+  };
+}
 function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (!isRecord(symbolInfo) || symbolInfo.symbol !== ONE_SHOT_SYMBOL) {
     throw new Error("btc_usdt_symbol_missing");
@@ -86,24 +187,9 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (symbolInfo.baseAsset !== "BTC" || symbolInfo.quoteAsset !== ONE_SHOT_QUOTE_ASSET) {
     throw new Error("btc_usdt_asset_identity_mismatch");
   }
-  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("MARKET")) {
-    throw new Error("market_order_type_not_allowed");
-  }
-  if (symbolInfo.quoteOrderQtyMarketAllowed !== true) {
-    throw new Error("quote_order_qty_market_not_allowed");
-  }
   if (Array.isArray(symbolInfo.permissions) && !symbolInfo.permissions.includes("SPOT")) {
     throw new Error("spot_permission_missing");
   }
-  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
-  const minNotional = positive(minNotionalFilter?.minNotional);
-  if (!minNotional || minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
-    throw new Error("min_notional_exceeds_one_usdt_or_missing");
-  }
-  const marketLot = filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE");
-  const minQty = positive(marketLot?.minQty);
-  const maxQty = positive(marketLot?.maxQty);
-  if (!minQty) throw new Error("market_lot_size_filter_missing");
 
   if (!isRecord(account) || account.accountType !== "SPOT" || account.canTrade !== true) {
     throw new Error("spot_account_trade_permission_not_confirmed");
@@ -116,6 +202,17 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
     throw new Error("free_usdt_below_one");
   }
+  const makerCommission = Number(account.makerCommission);
+  const takerCommission = Number(account.takerCommission);
+  if (!Number.isSafeInteger(makerCommission) || makerCommission < 0 ||
+      !Number.isSafeInteger(takerCommission) || takerCommission < 0 ||
+      makerCommission > 10_000 || takerCommission > 10_000) {
+    throw new Error("account_spot_commission_rate_unavailable");
+  }
+  const commissionBps = Math.max(makerCommission, takerCommission);
+  const quoteBudgetUnits = (100_000_000n * 10_000n) / (10_000n + BigInt(commissionBps));
+  const quoteBudget = unitsDecimal(quoteBudgetUnits, 8);
+  if (!(Number(quoteBudget) > 0)) throw new Error("quote_budget_after_fees_zero");
   if (!Array.isArray(openOrders) || openOrders.length !== 0) {
     throw new Error("existing_btcusdt_open_orders_present");
   }
@@ -131,42 +228,64 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   if (!Number.isFinite(spreadBps) || spreadBps > MAX_SPREAD_BPS) {
     throw new Error("spread_above_limit");
   }
-  const maxPrice = bestAsk * (1 + MAX_BOOK_SLIPPAGE_BPS / 10_000);
-  let remainingQuote = Number(ONE_SHOT_QUOTE_AMOUNT);
-  let estimatedBase = 0;
-  let estimatedQuote = 0;
-  for (const level of asks) {
-    if (level.price > maxPrice) break;
-    const levelQuote = level.price * level.quantity;
-    const usedQuote = Math.min(remainingQuote, levelQuote);
-    estimatedBase += usedQuote / level.price;
-    estimatedQuote += usedQuote;
-    remainingQuote -= usedQuote;
-    if (remainingQuote <= 1e-10) break;
+
+  if (symbolInfo.quoteOrderQtyMarketAllowed === true) {
+    if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("MARKET")) {
+      throw new Error("market_order_type_not_allowed");
+    }
+    const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
+    const minNotional = positive(minNotionalFilter?.minNotional);
+    if (!minNotional || minNotional > Number(quoteBudget)) {
+      throw new Error("min_notional_exceeds_one_usdt_or_missing");
+    }
+    const marketLot = filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE");
+    const minQty = positive(marketLot?.minQty);
+    const maxQty = positive(marketLot?.maxQty);
+    if (!minQty) throw new Error("market_lot_size_filter_missing");
+    const maxPrice = bestAsk * (1 + MAX_BOOK_SLIPPAGE_BPS / 10_000);
+    let remainingQuote = Number(quoteBudget);
+    let estimatedBase = 0;
+    let estimatedQuote = 0;
+    for (const level of asks) {
+      if (level.price > maxPrice) break;
+      const levelQuote = level.price * level.quantity;
+      const usedQuote = Math.min(remainingQuote, levelQuote);
+      estimatedBase += usedQuote / level.price;
+      estimatedQuote += usedQuote;
+      remainingQuote -= usedQuote;
+      if (remainingQuote <= 1e-10) break;
+    }
+    if (remainingQuote > 1e-8 || estimatedBase < minQty ||
+        (maxQty !== null && estimatedBase > maxQty)) {
+      throw new Error("visible_ask_depth_or_market_quantity_filter_failed");
+    }
+    return {
+      symbol: ONE_SHOT_SYMBOL, side: "BUY", type: "MARKET",
+      quoteOrderQty: quoteBudget,
+      maxQuoteNotional: Number(quoteBudget),
+      maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
+      quoteBudget, commissionBps,
+      estimatedQuoteNotional: Number(quoteBudget),
+      freeUsdt, minNotional, bestBid, bestAsk, spreadBps,
+      projectedAveragePrice: estimatedQuote / estimatedBase,
+      projectedSlippageBps: ((estimatedQuote / estimatedBase) / bestAsk - 1) * 10_000,
+      estimatedBaseQuantity: estimatedBase,
+      marketOrderAllowed: true,
+      quoteOrderQtyMarketAllowed: true,
+      openOrdersBefore: openOrders.length
+    };
   }
-  if (remainingQuote > 1e-8 || estimatedBase < minQty ||
-      (maxQty !== null && estimatedBase > maxQty)) {
-    throw new Error("visible_ask_depth_or_market_quantity_filter_failed");
-  }
+
+  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0]), quoteBudget});
   return {
-    symbol: ONE_SHOT_SYMBOL,
-    side: "BUY",
-    type: "MARKET",
-    quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
-    maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
-    freeUsdt,
-    minNotional,
-    bestBid,
-    bestAsk,
-    spreadBps,
-    projectedAveragePrice: estimatedQuote / estimatedBase,
-    projectedSlippageBps: ((estimatedQuote / estimatedBase) / bestAsk - 1) * 10_000,
-    estimatedBaseQuantity: estimatedBase,
-    marketOrderAllowed: true,
-    quoteOrderQtyMarketAllowed: true,
+    symbol: ONE_SHOT_SYMBOL, side: "BUY", ...limitIntent,
+    freeUsdt, commissionBps, bestBid, bestAsk, spreadBps,
+    marketOrderAllowed: false,
+    quoteOrderQtyMarketAllowed: false,
     openOrdersBefore: openOrders.length
   };
 }
+
 async function publicGet(path, fetchImpl) {
   const response = await fetchImpl(API_BASE + "/r/api/v1" + path, {
     method: "GET",
@@ -191,7 +310,7 @@ async function signedGet(path, params, apiKey, apiSecret, fetchImpl) {
   const data = await responseJson(response);
   return {response, data};
 }
-function normalizedOrder(data, fallbackClientOrderId) {
+function normalizedOrder(data, fallbackClientOrderId, fallbackType = "MARKET") {
   if (!isRecord(data) || data.orderId === undefined || data.orderId === null) return null;
   const fills = Array.isArray(data.fills) ? data.fills.map(fill => ({
     price: fill?.price ?? null,
@@ -204,7 +323,7 @@ function normalizedOrder(data, fallbackClientOrderId) {
     clientOrderId: data.clientOrderId || fallbackClientOrderId,
     symbol: data.symbol ?? ONE_SHOT_SYMBOL,
     side: data.side ?? "BUY",
-    type: data.type ?? "MARKET",
+    type: data.type ?? fallbackType,
     status: data.status ?? "UNKNOWN",
     originalQuantity: data.origQty ?? null,
     executedQuantity: data.executedQty ?? null,
@@ -277,7 +396,7 @@ export async function runTabdealOneShotBuy({
   }
   if (typeof fetchImpl !== "function") return {...base, result: "fetch_unavailable", orderSubmitted: false};
   let clientId;
-  try { clientId = clientOrderId(runId); }
+  try { clientId = clientOrderId(); }
   catch { return {...base, result: "workflow_run_id_missing", orderSubmitted: false}; }
 
   let preflight;
@@ -322,8 +441,10 @@ export async function runTabdealOneShotBuy({
   const params = {
     symbol: ONE_SHOT_SYMBOL,
     side: "BUY",
-    type: "MARKET",
-    quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
+    type: preflight.type,
+    ...(preflight.type === "MARKET"
+      ? {quoteOrderQty: preflight.quoteOrderQty}
+      : {quantity: preflight.quantity, price: preflight.price, stopPrice: "0"}),
     newClientOrderId: clientId,
     timestamp: Date.now(),
     recvWindow: RECV_WINDOW_MS
@@ -390,7 +511,9 @@ export async function runTabdealOneShotBuy({
   }
   return {
     ...base,
-    result: "order_accepted_reconciled",
+    result: String(order.status).toUpperCase() === "FILLED" ? "order_filled_reconciled"
+      : String(order.status).toUpperCase() === "PARTIALLY_FILLED" ? "order_partially_filled_open"
+      : "order_accepted_open",
     preflight,
     order,
     orderSubmitted: true
@@ -402,7 +525,7 @@ export function safeOneShotSummary(report) {
     symbol: report.symbol,
     quoteAmountCap: report.quoteAmountCap,
     side: report.side,
-    orderType: report.orderType,
+    orderType: report.preflight?.type ?? report.orderType,
     result: report.result,
     reason: report.reason ?? null,
     httpStatus: report.httpStatus ?? null,
@@ -441,8 +564,7 @@ async function main() {
       (report.reason ? "- Block reason: " + report.reason + "\n" : "")
     );
   }
-  if (!report.orderSubmitted || report.orderSubmitted === "unknown" ||
-      !report.order || !["FILLED", "PARTIALLY_FILLED"].includes(String(report.order.status).toUpperCase())) {
+  if (!report.orderSubmitted || report.orderSubmitted === "unknown" || !report.order) {
     process.exitCode = 1;
   }
 }

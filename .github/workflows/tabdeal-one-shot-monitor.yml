@@ -1,0 +1,30 @@
+name: Monitor the authorized Tabdeal one-shot BTCUSDT order (read only)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tabdeal-one-shot-order-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read and reconcile the existing one-shot order only
+        env:
+          TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
+          TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/tabdeal-one-shot-monitor.mjs

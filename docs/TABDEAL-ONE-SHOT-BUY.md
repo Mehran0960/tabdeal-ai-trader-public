@@ -1,40 +1,43 @@
-# Tabdeal one-shot Spot buy — 1 USDT cap
+# Tabdeal one-shot Spot buy — maximum 1 USDT all-in
 
-This is a deliberately isolated, manually-triggered execution path for the owner's separately authorized one-time test purchase. It is not the automatic trading bot and it does not change the live-trading defaults in `src/tabdeal-spot-execution.js`.
+This is an isolated, user-authorized one-time execution path. It is not the automatic trading strategy and does not change the main live-trading defaults.
 
 ## Fixed scope
 
-- Venue and account: Tabdeal Spot only.
-- Pair: `BTCUSDT` only. BTCUSDT is the only symbol currently allowed by the existing Spot execution adapter and is selected for liquidity/execution reliability, not because the strategy has a BUY signal.
-- Side and type: one `BUY MARKET` order, using `quoteOrderQty=1.00000000` USDT.
-- Hard cap: 1.00000000 USDT quote notional. Symbol, side, type and amount are constants in the runner, not workflow inputs.
-- Trigger: the user-authorized one-time activation marker pushed to `main` (`ops/tabdeal-one-shot-buy.activate`); the workflow also retains a guarded manual-dispatch path.
-- Idempotency: before the only order POST, the runner atomically creates the permanent Git ref `refs/tags/tabdeal-one-shot-1usdt-20261127`. An existing tag or an ambiguous tag-creation result blocks the order; reruns cannot spend again.
-- Credentials: existing repository Actions secrets `TABDEAL_API_KEY` and `TABDEAL_API_SECRET`; never print or persist their values.
+- Venue/account: Tabdeal Spot only.
+- Pair: `BTCUSDT` only.
+- Side: BUY only.
+- Absolute maximum total debit: 1.00000000 USDT, including a conservative commission reserve based on the larger of the account's maker/taker commission rates.
+- If the live pair metadata explicitly allows quote-sized market buys, the runner may use MARKET with a reduced `quoteOrderQty` so the fee reserve still fits inside the 1 USDT cap.
+- The current live BTCUSDT metadata reported `quoteOrderQtyMarketAllowed=false`. In that case the runner uses a price-capped LIMIT order only when the exact current LOT_SIZE, PRICE_FILTER and MIN_NOTIONAL filters allow a valid quantity under the fee-adjusted quote budget. Quantity is rounded down to the venue step size. No market-order quantity fallback is used.
+- The limit price is capped at no more than 5 bps above the current best ask, rounded down to the valid price tick. The spread must be no more than 30 bps.
+- The fixed client order ID is `t1shot-btcusdt-20261127`; the permanent execution lock is `refs/tags/tabdeal-one-shot-1usdt-20261127`. A second execution is blocked.
+- Credentials remain in GitHub Actions secrets only.
 
 ## Pre-submit hard stops
 
-The runner fetches current public exchange metadata and the live order book, then performs signed Spot account and open-order reads. It will not POST unless all checks pass:
+Before any order POST, the runner checks current public exchange metadata, the book, signed Spot account data, commission rates, free USDT, open orders and the same client order ID. It stops before POST if any information is missing, malformed, contradictory or outside limits.
 
-1. BTCUSDT is `TRADING`, Spot trading is enabled, and MARKET orders are listed.
-2. The exchange explicitly reports `quoteOrderQtyMarketAllowed=true`. No quantity-based market-order fallback is used because it cannot enforce the same quote-notional cap under price movement.
-3. The current `MIN_NOTIONAL` is present and no greater than 1 USDT; market lot-size constraints and visible ask depth are sufficient.
-4. The live spread is at most 30 bps; the visible ask book can absorb 1 USDT within a 5 bps modeled price impact.
-5. The signed account is a tradable SPOT account, the USDT free balance is at least 1 USDT, and no existing BTCUSDT open order is present.
-6. A pre-submit lookup for this run's unique client order ID conclusively returns Tabdeal's documented order-not-found code 1204.
+The one-shot order is sent only after the permanent lock is successfully claimed. The order's estimated quote notional is reduced to reserve the maximum maker/taker fee shown by the account response. If the exchange minimum is greater than the fee-adjusted budget, the runner will not trade—even though the account may have 1 USDT and the nominal minimum may itself be 1 USDT.
 
-Any missing, malformed, stale-looking, or ambiguous response fails closed. A minimum order of 1 USDT does not guarantee that the order can be placed: pair-specific filters, available balance, fees, API permission and market conditions may still block it.
+## Limit order monitoring
+
+The current BTCUSDT setting does not allow quote-sized MARKET orders. A valid fallback is a LIMIT order with a fixed maximum price and a base quantity rounded down so that:
+
+`limit price × base quantity + conservative fee reserve ≤ 1 USDT`
+
+The Spot SDK's documented order interface accepts LIMIT price and quantity but does not expose a Spot time-in-force parameter. Therefore the order uses the exchange default (GTC). This means the order may remain open and reserve its quote balance while waiting for a matching seller. It is not silently cancelled or repriced.
+
+A separate GitHub Actions workflow checks the same order ID every five minutes using signed GET only. It stops polling after the exchange reports a terminal state or a documented order-not-found result. Monitoring never sends a new order, cancellation, sell, withdrawal or transfer.
 
 ## Submission and recovery
 
 - At most one signed `POST /api/v1/order` is attempted.
-- The unique client order ID is deterministic for the GitHub workflow run. Re-running the same workflow run reconciles the prior ID and does not create a duplicate order.
-- A 4xx response is reported as rejected without retry.
-- A timeout, network failure or 5xx triggers only one read-only lookup by the same client order ID. If the state remains unclear, execution halts; no second POST is sent.
-- The permanent one-shot lock is intentionally fail-closed. If execution reaches the lock but cannot submit, the authorization is considered consumed until an operator deliberately reviews and resets the lock.
-- The workflow never submits a SELL, cancellation, withdrawal or transfer and never turns on recurring/live strategy automation.
-- Actual order ID, status, filled BTC quantity, quote quantity and reported fill commissions are included in the Actions summary. Never infer a fill merely from a successful HTTP response.
+- A 4xx rejection is reported without retry.
+- A timeout, network failure or 5xx triggers one read-only lookup using the same stable client order ID. If the result is still ambiguous, the runner halts and does not repeat the POST.
+- The permanent one-shot lock is fail-closed. Once claimed, it cannot be automatically reset.
+- The result report includes the exchange order ID/status, executed BTC amount, cumulative quote amount and exchange-reported fills when returned. A successful HTTP response alone is not treated as proof of a fill.
 
 ## Strategy context
 
-The strategy research currently has no candidate that passed all out-of-sample and risk gates. This one-off purchase is therefore an explicitly discretionary execution test, not a strategy-approved entry and not evidence of profitability. The purchased BTC remains in Spot; this workflow does not place an exit order.
+The strategy research has not produced a candidate that passed all out-of-sample and risk gates. This is a discretionary one-time execution test, not a strategy-approved entry or evidence of profitability. No return is guaranteed.
