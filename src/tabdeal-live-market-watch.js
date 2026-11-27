@@ -10,6 +10,7 @@ export const TABDEAL_LIVE_WATCH_POLICY = Object.freeze({
   barIntervalMs: 60_000,
   retainedBars: 90,
   minimumBarsForCandidate: 16,
+  maximumLatestBarAgeMs: 120_000,
   relativeLookbackMinutes: 15,
   reversalLookbackMinutes: 5,
   minimumRelativeUnderperformanceBps: 100,
@@ -255,7 +256,7 @@ export function updateTabdealLiveMinuteBar(state,message) {
   return {accepted:true,symbol,time};
 }
 
-function alignedPriceRows(symbol,market,marketBySymbol,barsBySymbol,btcUsdtBars) {
+function alignedPriceRows(symbol,market,barsBySymbol,btcUsdtBars) {
   const direct=barsBySymbol[symbol]||[];
   if(market.quoteAsset==="USDT"){
     return direct.map(row=>({time:row.time,price:row.close}));
@@ -293,7 +294,7 @@ export function evaluateTabdealRelativeWatch({
     // Prefer a directly USDT-quoted market; use BTC-quoted markets only where
     // no direct USDT pair exists and BTCUSDT has aligned minute candles.
     if(!selected||market.quoteAsset==="USDT"&&selected.quoteAsset!=="USDT"){
-      const priceRows=alignedPriceRows(symbol,market,marketBySymbol,state.barsBySymbol,btcBars);
+      const priceRows=alignedPriceRows(symbol,market,state.barsBySymbol,btcBars);
       if(priceRows.length<TABDEAL_LIVE_WATCH_POLICY.minimumBarsForCandidate){
         if(!selected)assets.set(base,{available:false,reason:"btc_usdt_alignment_missing",symbol,quoteAsset:market.quoteAsset});
         continue;
@@ -301,7 +302,7 @@ export function evaluateTabdealRelativeWatch({
       const book=currentBooks[symbol];
       assets.set(base,{
         available:true,asset:base,symbol,quoteAsset:market.quoteAsset,
-        priceRows,book,
+        priceRows,book,marketRulesReady:market.marketRulesReady===true,
         latestPriceUsdt:priceRows.at(-1)?.price??null
       });
     }
@@ -320,9 +321,16 @@ export function evaluateTabdealRelativeWatch({
        last.time-at1.time!==TABDEAL_LIVE_WATCH_POLICY.barIntervalMs)continue;
     const latestBook=item.book;
     const bookAge=nowMs-Number(latestBook?.receivedAtMs);
-    if(!latestBook||bookAge<0||bookAge>TABDEAL_LIVE_WATCH_POLICY.maximumBookAgeMs)continue;
-    let depthMultiplier=item.quoteAsset==="BTC"?Number(btcMarket?currentBooks.BTCUSDT?.midPrice:NaN):1;
-    if(item.quoteAsset==="BTC"&&!positive(depthMultiplier))continue;
+    const latestBarAge=nowMs-(Number(last.time)+TABDEAL_LIVE_WATCH_POLICY.barIntervalMs);
+    if(!latestBook||bookAge<0||bookAge>TABDEAL_LIVE_WATCH_POLICY.maximumBookAgeMs||
+       latestBarAge< -TABDEAL_LIVE_WATCH_POLICY.barIntervalMs||
+       latestBarAge>TABDEAL_LIVE_WATCH_POLICY.maximumLatestBarAgeMs||
+       item.marketRulesReady!==true)continue;
+    const btcBook=currentBooks.BTCUSDT;
+    const btcBookAge=nowMs-Number(btcBook?.receivedAtMs);
+    let depthMultiplier=item.quoteAsset==="BTC"?Number(btcBook?.midPrice):1;
+    if(item.quoteAsset==="BTC"&&(!btcMarket||!positive(depthMultiplier)||
+       btcBookAge<0||btcBookAge>TABDEAL_LIVE_WATCH_POLICY.maximumBookAgeMs))continue;
     const spreadBps=Number(latestBook.spreadBps);
     const bidDepth=Number(latestBook.bidDepthTop5Quote)*depthMultiplier;
     const askDepth=Number(latestBook.askDepthTop5Quote)*depthMultiplier;
@@ -332,7 +340,8 @@ export function evaluateTabdealRelativeWatch({
     if(![spreadBps,bidDepth,askDepth,oneMinuteReturnBps,fiveMinuteReturnBps,fifteenMinuteReturnBps].every(Number.isFinite))continue;
     latestRows.push({
       asset:item.asset,symbol:item.symbol,quoteAsset:item.quoteAsset,
-      latestPriceUsdt:last.price,bookAgeMs:bookAge,spreadBps,
+      latestPriceUsdt:last.price,bookAgeMs:bookAge,latestBarAgeMs:latestBarAge,
+      marketRulesReady:item.marketRulesReady,spreadBps,
       bidDepthTop5Usdt:bidDepth,askDepthTop5Usdt:askDepth,
       oneMinuteReturnBps,fiveMinuteReturnBps,fifteenMinuteReturnBps
     });
@@ -379,9 +388,9 @@ export function evaluateTabdealRelativeWatch({
       slippageAssumptionBpsPerOrder:Number(slippageBpsPerOrder),
       tradeAuthorized:false,reason:"no_laggard_with_reversal_and_liquidity_confirmation"};
   }
-  const sourceBook=currentBooks[strongest.symbol];
   const costBps=2*(Number(feeBpsPerOrder)+Number(slippageBpsPerOrder))+
     Number(strongest.spreadBps)/2+Number(target.spreadBps)/2;
+  const recentReturnGapBps=Number(strongest.fifteenMinuteReturnBps)-Number(target.fifteenMinuteReturnBps);
   return {
     status:"provisional_relative_value_watch_candidate",
     availableAssets:latestRows.length,
@@ -396,8 +405,8 @@ export function evaluateTabdealRelativeWatch({
       fiveMinuteReturnBps:target.fiveMinuteReturnBps,
       fifteenMinuteReturnBps:target.fifteenMinuteReturnBps,
       estimatedSwitchFrictionBps:costBps,
-      grossRelativeGapToMedianBps:Math.abs(target.relativeUnderperformanceBps),
-      grossGapToFrictionMultiple:Math.abs(target.relativeUnderperformanceBps)/Math.max(costBps,1),
+      recentReturnGapBps,
+      recentRelativeGapIsHistoricalOnly:true,
       spreadBps:{source:strongest.spreadBps,target:target.spreadBps},
       topFiveDepthUsdt:{
         sourceBid:strongest.bidDepthTop5Usdt,sourceAsk:strongest.askDepthTop5Usdt,
