@@ -19,7 +19,7 @@ The active Shadow runtime now uses Kraken Spot XBTUSD closed 4h candles only as 
 
 - Read-only access to Tabdeal public Spot market endpoints.
 - Market-structure summaries (order book and recent-trade snapshots).
-- Short, unauthenticated Spot order-book WebSocket sampling for spread and liquidity diagnostics.
+- One-minute, public Spot recent-trade polling that builds exchange-local OHLCV candles from unseen trades only; no account key is used.\n- Short, unauthenticated Spot order-book WebSocket sampling for spread and liquidity diagnostics.
 - Read-only capture of public Tabdeal market-event signals, with explicit first-page coverage and freshness metadata.
 - Research and risk-analysis functions.
 - Backtest helpers and a paper-simulation engine.
@@ -30,8 +30,8 @@ The active Shadow runtime now uses Kraken Spot XBTUSD closed 4h candles only as 
 
 ## Important data limitations
 
-- The current public trades endpoint is queried as a single recent page (up to 1,000 records). A capped page is flagged as potentially truncated; an uncapped page is still not assumed to be complete history.
-- Recent trades and a single order-book snapshot are not a validated candle history. The scanner does not fabricate OHLC candles from them. The public Spot WebSocket documentation lists order-book updates only. A passive probe of the Binance-style `@trade` and `@aggTrade` topics on 2026-11-25 returned `INVALID_FORMAT` for both; these are not usable Spot streams. The depth feed is used for provisional liquidity/spread diagnostics, not trade signals; the docs do not fully specify snapshot-vs-delta synchronization, so these metrics are not execution-grade yet.
+- The public trades endpoint still has no historical cursor: each request returns at most 1,000 recent records. The Shadow Worker now polls BTCUSDT every minute, advances by trade ID, and stores only deduplicated 1m OHLCV aggregates (not the raw tape). If a capped page cannot overlap the prior successful poll, the continuity epoch is reset and affected data is excluded. This builds forward-only local history; there is no historical backfill.
+- A single recent-trades page or order-book snapshot is not a validated candle history. The scanner does not fabricate OHLC candles; the separate forward collector builds bars only from captured Spot trades. The public Spot WebSocket documentation lists order-book updates only. A passive probe of the Binance-style `@trade` and `@aggTrade` topics on 2026-11-25 returned `INVALID_FORMAT` for both; these are not usable Spot streams. The depth feed is used for provisional liquidity/spread diagnostics, not trade signals; the docs do not fully specify snapshot-vs-delta synchronization, so these metrics are not execution-grade yet.
 - IRT quote-unit and settlement semantics remain unverified. The code keeps IRT marked as `IRT_UNVERIFIED` in market snapshots and Spot depth history; it must not be silently treated as RIAL or TOMAN.
 - Alternative.me Fear & Greed is a daily Bitcoin-oriented composite index, not an altcoin-specific trade signal. Historical observations are conservatively treated as unavailable until 24 hours after their source timestamp, and any displayed use retains the required `Data from Alternative.me` attribution.
 - The public signal page is parsed as an HTML/Nuxt payload, not a stable official API. Only the first returned page is captured when pagination is incomplete; rows are candidate-discovery metadata, not entry signals. The latest observed scheduled capture ([run 45784659336](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/45784659336)) found the source page about 18h 55m old and returned only 10/14 rows; it was correctly marked stale and ineligible for trade research. This workflow does not collect Telegram signals.
@@ -52,7 +52,7 @@ npm run international:research
 npm run sentiment:collect
 ```
 
-The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. The signal scan writes `artifacts/tabdeal-signal-events/latest.json`. These artifacts are ignored by Git. The scheduled signal workflow stores prospective, deduplicated observations in the separate `signal-history` branch. The Spot depth sampler listens to the official 2-second order-book stream for one minute per run and stores only aggregate microstructure summaries in the same history branch; it does not retain raw messages.
+The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. The signal scan writes `artifacts/tabdeal-signal-events/latest.json`. The Shadow Worker stores only one-minute OHLCV aggregates in D1 and reports capture continuity at `/market-data/health`; the first poll establishes a baseline, and at least 240 consecutive closed minutes are required for a local 4h candle window. The scheduled signal workflow stores prospective, deduplicated observations in the separate `signal-history` branch. The Spot depth sampler listens to the official 2-second order-book stream for one minute per run and stores only aggregate microstructure summaries; it does not retain raw messages.
 
 ## Research and execution gates
 
