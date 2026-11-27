@@ -93,7 +93,7 @@ test("aggregates minute OHLCV exactly from actual trades", () => {
   assert.equal(candles[0].low_price, "60000");
   assert.equal(candles[0].close_price, "60100");
   assert.equal(candles[0].base_volume, "0.003");
-  assert.equal(candles[0].quote_volume, "180");
+  assert.equal(candles[0].quote_volume, "180.2");
   assert.equal(candles[0].trade_count, 2);
   assert.equal(candles[1].open_price, "59900");
 });
@@ -110,7 +110,7 @@ test("merges later trades into the same minute without losing OHLC order or volu
   assert.equal(merged.close_price, "60100");
   assert.equal(merged.high_price, "60100");
   assert.equal(merged.base_volume, "0.0015");
-  assert.equal(merged.quote_volume, "90");
+  assert.equal(merged.quote_volume, "90.05");
   assert.equal(merged.trade_count, 2);
 });
 
