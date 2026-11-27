@@ -3,7 +3,7 @@ import {appendFile,mkdir,readFile,readdir,writeFile} from "node:fs/promises";
 import path from "node:path";
 import {pathToFileURL} from "node:url";
 import {
-  runRelativeAssetRotationResearch,applyRelativeRotationPaperTick
+  runRelativeAssetRotationResearch,applyRelativeRotationPaperTick,ROTATION_POLICY
 } from "../src/relative-asset-rotation.js";
 
 function arg(name,fallback){
@@ -102,7 +102,7 @@ async function main(){
     "- Forward Paper: "+(paperTick?.reason||report.reason||"not run"),
     "- Paper cash: "+(state?.cashBalance??"not initialized")+" USDT",
     "- Paper held asset: "+(state?.position?.symbol??"none"),
-    "- Maximum drawdown stop: "+ROTATION_DD()+"%",
+    "- Maximum drawdown stop: "+ROTATION_POLICY.maximumDrawdownPct+"%",
     "- Exchange orders placed: 0",
     "- Funds moved: no",
     "- Live trading enabled: no",
@@ -127,7 +127,6 @@ async function main(){
   if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,summary+"\n","utf8");
   if(!report.available)process.exitCode=1;
 }
-function ROTATION_DD(){return 20;}
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   main().catch(error=>{
     console.error("RELATIVE_ASSET_ROTATION_FAILED");
