@@ -1,9 +1,8 @@
-const BINANCE_KLINES = "https://data-api.binance.vision/api/v3/klines";
+const KRAKEN_OHLC = "https://api.kraken.com/0/public/OHLC";
 const TABDEAL_API = "https://api1.tabdeal.org/r/api/v1";
 const SYMBOL = "BTCUSDT";
 const INTERVAL = "4h";
 const INTERVAL_MS = 4 * 60 * 60 * 1000;
-const LOOKBACK = 120;
 const MAX_CANDLE_AGE_MS = INTERVAL_MS + 15 * 60 * 1000;
 const MAX_SPREAD_BPS = 30;
 const MIN_DEPTH_25_QUOTE = 1_000;
@@ -49,45 +48,51 @@ function ema(values, period) {
   }
   return result;
 }
-function normalizeBinanceKlines(rows, nowMs) {
-  if (!Array.isArray(rows)) throw new Error("binance_klines_payload_invalid");
+function normalizeKrakenOhlc(payload, nowMs) {
+  if (!isRecord(payload) || !Array.isArray(payload.error) || payload.error.length) {
+    throw new Error("kraken_ohlc_payload_error");
+  }
+  if (!isRecord(payload.result)) throw new Error("kraken_ohlc_result_invalid");
+  const rows = Object.entries(payload.result)
+    .find(([key, value]) => key !== "last" && Array.isArray(value))?.[1];
+  if (!Array.isArray(rows)) throw new Error("kraken_xbtusd_ohlc_rows_missing");
+
   const candles = [];
   let priorOpen = null;
   for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 9) throw new Error("binance_kline_row_invalid");
+    if (!Array.isArray(row) || row.length < 8) throw new Error("kraken_ohlc_row_invalid");
+    const openTimeSeconds = Number(row[0]);
     const candle = {
-      openTimeMs: Number(row[0]),
+      openTimeMs: openTimeSeconds * 1000,
       open: Number(row[1]),
       high: Number(row[2]),
       low: Number(row[3]),
       close: Number(row[4]),
-      baseVolume: Number(row[5]),
-      closeTimeMs: Number(row[6]),
-      quoteVolume: Number(row[7]),
-      tradeCount: Number(row[8])
+      volume: Number(row[6]),
+      tradeCount: Number(row[7])
     };
-    if (!Number.isSafeInteger(candle.openTimeMs) ||
-        !Number.isSafeInteger(candle.closeTimeMs) ||
+    if (!Number.isSafeInteger(openTimeSeconds) ||
+        !Number.isSafeInteger(candle.openTimeMs) ||
         candle.openTimeMs <= 0 || candle.openTimeMs % INTERVAL_MS !== 0 ||
-        candle.closeTimeMs < candle.openTimeMs ||
-        candle.closeTimeMs >= candle.openTimeMs + INTERVAL_MS ||
         ![candle.open, candle.high, candle.low, candle.close].every(positive) ||
-        !nonNegative(candle.baseVolume) || !nonNegative(candle.quoteVolume) ||
+        !nonNegative(candle.volume) ||
         !Number.isSafeInteger(candle.tradeCount) || candle.tradeCount < 0 ||
         candle.high < Math.max(candle.open, candle.close, candle.low) ||
         candle.low > Math.min(candle.open, candle.close, candle.high)) {
-      throw new Error("binance_kline_invalid");
+      throw new Error("kraken_ohlc_candle_invalid");
     }
     if (priorOpen !== null && candle.openTimeMs - priorOpen !== INTERVAL_MS) {
-      throw new Error("binance_4h_history_gap");
+      throw new Error("kraken_4h_history_gap");
     }
     priorOpen = candle.openTimeMs;
-    if (candle.closeTimeMs < nowMs) candles.push(candle);
+    // Kraken always includes the current, uncommitted interval; never use it.
+    if (candle.openTimeMs + INTERVAL_MS <= nowMs) candles.push(candle);
   }
-  if (candles.length < 60) throw new Error("binance_4h_history_insufficient");
+  if (candles.length < 60) throw new Error("kraken_4h_history_insufficient");
   const latest = candles.at(-1);
-  const age = nowMs - (latest.closeTimeMs + 1);
-  if (age < 0 || age > MAX_CANDLE_AGE_MS) throw new Error("binance_4h_latest_candle_stale");
+  const latestClosedAtMs = latest.openTimeMs + INTERVAL_MS;
+  const age = nowMs - latestClosedAtMs;
+  if (age < 0 || age > MAX_CANDLE_AGE_MS) throw new Error("kraken_4h_latest_candle_stale");
   return {candles, age};
 }
 function marketRules(market) {
@@ -164,7 +169,7 @@ function errorCode(error, fallback) {
 }
 
 export function evaluateTabdealMvpShadow({
-  binanceKlines,
+  krakenOhlc,
   tabdealExchangeInfo,
   tabdealDepth,
   nowMs = Date.now(),
@@ -175,7 +180,8 @@ export function evaluateTabdealMvpShadow({
     reportType: "TABDEAL_BTCUSDT_LEAN_SPOT_SHADOW",
     capturedAt: new Date(nowMs).toISOString(),
     instrument: {symbol: SYMBOL, venue: "TABDEAL", market: "SPOT", quoteAsset: "USDT"},
-    signalSource: {provider: "BINANCE_SPOT", symbol: SYMBOL, interval: INTERVAL},
+    signalSource: {provider: "KRAKEN_SPOT", symbol: "XBTUSD", quoteAsset: "USD", interval: INTERVAL,
+      contextOnly: true, executableTabdealQuote: false},
     data: {status: "not_ready", candleCount: 0, latestClosedAt: null, latestClosedAgeMs: null},
     trend: {state: "UNKNOWN", ema20: null, ema50: null, latestClose: null},
     localMarket: {status: "not_ready", spreadBps: null, depth25Quote: null, rules: null},
@@ -189,7 +195,7 @@ export function evaluateTabdealMvpShadow({
   };
   let candles;
   try {
-    const normalized = normalizeBinanceKlines(binanceKlines, nowMs);
+    const normalized = normalizeKrakenOhlc(krakenOhlc, nowMs);
     candles = normalized.candles;
     const closes = candles.map(row => row.close);
     report.data = {
@@ -211,7 +217,7 @@ export function evaluateTabdealMvpShadow({
       report.trend.state = "DOWN_TREND";
     }
   } catch (error) {
-    report.data = {status: "invalid_or_stale", errorCode: errorCode(error, "binance_history_invalid")};
+    report.data = {status: "invalid_or_stale", errorCode: errorCode(error, "kraken_history_invalid")};
   }
   try {
     const market = normalizeTabdealMarket(tabdealExchangeInfo);
@@ -225,7 +231,7 @@ export function evaluateTabdealMvpShadow({
     report.localMarket = {status: "invalid_or_unavailable", errorCode: errorCode(error, "tabdeal_market_invalid")};
   }
   if (report.data.status !== "usable") {
-    report.executionGate = "BLOCKED_BINANCE_DATA";
+    report.executionGate = "BLOCKED_KRAKEN_DATA";
   } else if (!["usable_snapshot"].includes(report.localMarket.status)) {
     report.executionGate = "BLOCKED_TABDEAL_LOCAL_BOOK";
   }
@@ -239,13 +245,13 @@ export function evaluateTabdealMvpShadow({
 
 async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
   const startedAt = now();
-  let binanceKlines = null, tabdealExchangeInfo = null, tabdealDepth = null;
+  let krakenOhlc = null, tabdealExchangeInfo = null, tabdealDepth = null;
   let bookRequestDurationMs = null;
   const sourceErrors = {};
   const requests = [
-    getJson(BINANCE_KLINES + "?symbol=" + SYMBOL + "&interval=" + INTERVAL + "&limit=" + LOOKBACK, 10_000)
-      .then(value => { binanceKlines = value; })
-      .catch(error => { sourceErrors.binance = errorCode(error, "binance_fetch_failed"); }),
+    getJson(KRAKEN_OHLC + "?pair=XBTUSD&interval=240", 10_000)
+      .then(value => { krakenOhlc = value; })
+      .catch(error => { sourceErrors.kraken = errorCode(error, "kraken_ohlc_fetch_failed"); }),
     getJson(TABDEAL_API + "/exchangeInfo", 8_000)
       .then(value => { tabdealExchangeInfo = value; })
       .catch(error => { sourceErrors.tabdealExchangeInfo = errorCode(error, "tabdeal_exchange_info_fetch_failed"); })
@@ -261,7 +267,7 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
   );
   await Promise.all(requests);
   const report = evaluateTabdealMvpShadow({
-    binanceKlines, tabdealExchangeInfo, tabdealDepth, nowMs: now(),
+    krakenOhlc, tabdealExchangeInfo, tabdealDepth, nowMs: now(),
     bookRequestDurationMs: bookRequestDurationMs ?? -1
   });
   report.scanDurationMs = Math.max(0, now() - startedAt);
