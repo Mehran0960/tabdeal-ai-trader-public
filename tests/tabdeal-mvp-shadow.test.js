@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  evaluateTabdealMvpShadow, buildShadowHealth, runTabdealLocalPaperCapture
+  evaluateTabdealMvpShadow, buildShadowHealth, runTabdealLocalPaperCapture,
+  updateTabdealLocalPaperMarkouts
 } from "../workers/tabdeal-mvp-shadow/index.js";
 
 const interval = 4 * 60 * 60 * 1000;
@@ -232,4 +233,34 @@ test("local forward-paper capture records WAIT without account access or exchang
   assert.ok(insert);
   assert.equal(insert.params[5],"WAIT");
   assert.equal(insert.params[7],0);
+});
+
+
+
+test("forward paper markouts ignore carry-forward no-trade target candles",async()=>{
+  const writes=[];
+  const db={
+    prepare(sql){
+      const statement={
+        bind(...params){writes.push({sql,params});return statement;},
+        async all(){return {results:[{
+          symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
+          candle_open_ms:1_800_000_000_000,entry_price:100,entry_spread_bps:10
+        }]}};
+      };
+      return statement;
+    },
+    async batch(items){writes.push(...items);return [];}
+  };
+  const close=async coverageStatus=>updateTabdealLocalPaperMarkouts({DB:db},[{
+    minuteOpenMs:1_800_000_000_000+5*60_000,close:102,
+    coverageStatus,tradeCount:coverageStatus==="complete"?2:0
+  }],1_800_000_000_000+6*60_000);
+  await close("no_trade");
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].sql.includes("SELECT symbol"),true);
+  writes.length=0;
+  await close("complete");
+  assert.equal(writes.length,4);
+  assert.equal(writes.slice(1).length,3);
 });
