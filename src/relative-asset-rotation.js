@@ -473,6 +473,7 @@ export function runRelativeAssetRotationResearch({rows,nowMs=Date.now()}={}) {
   const signalTimeMs=normalized.latestOpenTimeMs;
   return {
     schemaVersion:1,reportType:"TABDEAL_RELATIVE_ASSET_ROTATION_RESEARCH",
+    available:true,status:promotionPassed?"forward_paper_eligible":"research_only_no_promotion",
     generatedAt:new Date(nowMs).toISOString(),
     provider:"binance_spot_closed_4h_candles_for_signal_research",
     executionVenue:"tabdeal_spot_usdt",
