@@ -94,6 +94,12 @@ test("never rounds sell quantity upward above the free BTC balance", () => {
   assert.equal(Number(result.sellQuantity) % 0.000001 < 1e-10, true);
 });
 
+test("blocks if the exchange account cannot trade", () => {
+  assert.throws(() => prepareTabdealSellAllBtc({
+    ...readyArgs, account: {...account, canTrade: false}
+  }), /account_trading_disabled/);
+});
+
 test("blocks if any BTC is locked instead of canceling existing orders", () => {
   assert.throws(() => prepareTabdealSellAllBtc({
     ...readyArgs,
