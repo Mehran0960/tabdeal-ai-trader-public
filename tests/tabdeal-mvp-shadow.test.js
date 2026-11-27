@@ -8,7 +8,8 @@ function candles(count = 100, trend = "up") {
   const rows = [];
   for (let i = 0; i < count; i++) {
     const price = trend === "up" ? 60_000 + i * 25 : trend === "down" ? 65_000 - i * 20 : 62_000;
-    const open = Date.UTC(2026, 0, 1) + i * interval;
+    const latestClosedOpen = Math.floor(nowMs / interval) * interval - interval;
+    const open = latestClosedOpen - (count - 1 - i) * interval;
     rows.push([
       open, String(price - 5), String(price + 10), String(price - 10), String(price),
       "10", open + interval - 1, String(price * 10), 50
