@@ -10,3 +10,5 @@ Retry activation after correcting exchangeInfo endpoint shape; earlier attempt s
 Automatic retry: prior attempts were stopped before POST because BTCUSDT does not allow quote-sized MARKET orders. The revised path uses a fee-reserved price-capped LIMIT order and will run only if live filters allow an order under the 1 USDT all-in ceiling.
 
 Automatic retry: the previous price-capped LIMIT attempt stopped before claiming the one-shot lock because the exchange's decimal filter precision exceeded the runner's conservative parser. Exact BigInt handling now supports high-precision tick/lot values; all existing market filters and the all-in 1 USDT cap remain enforced.
+
+Automatic retry: the 1 USDT order amount is now used in full, without subtracting commission from the quote amount. Commission is captured from the exchange fill response. The preflight still strictly enforces the calculated quote notional <= 1 USDT and the current exchange LOT_SIZE, PRICE_FILTER, MIN_NOTIONAL, spread and visible-depth checks.
