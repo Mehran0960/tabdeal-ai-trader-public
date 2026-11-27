@@ -250,6 +250,28 @@ export function evaluateTabdealMvpShadow({
   return report;
 }
 
+
+export function buildShadowHealth(report, {nowMs = Date.now(), maxAgeMs = 30 * 60 * 1000} = {}) {
+  if (!isRecord(report) || typeof report.capturedAt !== "string" ||
+      !Number.isSafeInteger(nowMs) || !Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0) {
+    return {status: "invalid_report", latestScan: null, ageMs: null, fresh: false};
+  }
+  const capturedAtMs = Date.parse(report.capturedAt);
+  if (!Number.isFinite(capturedAtMs) || capturedAtMs <= 0) {
+    return {status: "invalid_report_time", latestScan: null, ageMs: null, fresh: false};
+  }
+  const ageMs = Math.max(0, nowMs - capturedAtMs);
+  const fresh = nowMs >= capturedAtMs && ageMs <= maxAgeMs;
+  return {
+    status: fresh ? "fresh" : "stale",
+    latestScan: report.capturedAt,
+    ageMs,
+    fresh,
+    expectedCadenceMinutes: 15,
+    maxAgeMinutes: Math.floor(maxAgeMs / 60_000)
+  };
+}
+
 async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
   const startedAt = now();
   let krakenOhlc = null, tabdealExchangeInfo = null, tabdealDepth = null;
@@ -300,13 +322,19 @@ export default {
       const row = await env.DB.prepare(
         "SELECT report_json FROM shadow_scans ORDER BY captured_at DESC LIMIT 1"
       ).first();
-      return row?.report_json ? json(JSON.parse(row.report_json)) : json({status: "no_shadow_scan_yet"}, 503);
+      if (!row?.report_json) {
+        return json({status: "no_shadow_scan_yet", fresh: false}, 503);
+      }
+      const report = JSON.parse(row.report_json);
+      return json({...report, health: buildShadowHealth(report)});
     }
     // Scans run only on the scheduled trigger. Do not expose a public endpoint
     // that lets arbitrary callers fan out requests to upstream exchange APIs.
     return json({error: "not_found"}, 404);
   },
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runScan(env).catch(() => {}));
+  async scheduled(_event, env) {
+    // Await the single scan so D1 failures are reflected in Cron event outcomes.
+    // Upstream source failures are already persisted as explicit WAIT reports.
+    await runScan(env);
   }
 };
