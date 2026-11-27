@@ -91,6 +91,7 @@ test("live order submission is blocked by defaults and does not touch the networ
 
 test("never repeats an uncertain POST; it reconciles once by client order ID", async () => {
   const calls = [];
+  let lookupCount = 0;
   const client = createTabdealSpotExecutionClient({
     ...credentials,
     liveTradingEnabled: true,
@@ -101,6 +102,12 @@ test("never repeats an uncertain POST; it reconciles once by client order ID", a
     fetchImpl: async (url, options) => {
       calls.push({url, method: options.method});
       if (options.method === "POST") throw new Error("simulated network timeout");
+      lookupCount++;
+      if (lookupCount === 1) {
+        return new Response(JSON.stringify({code: -2013, msg: "Order does not exist"}), {
+          status: 404, headers: {"content-type": "application/json"}
+        });
+      }
       return new Response(JSON.stringify({
         orderId: 77, clientOrderId: "paper-recover-1", symbol: "BTCUSDT",
         side: "BUY", type: "LIMIT", status: "NEW", origQty: "0.001",
@@ -118,5 +125,53 @@ test("never repeats an uncertain POST; it reconciles once by client order ID", a
   });
   assert.equal(result.status, "reconciled_after_uncertain_submit");
   assert.equal(result.order.orderId, "77");
-  assert.deepEqual(calls.map(x => x.method), ["POST", "GET"]);
+  assert.deepEqual(calls.map(x => x.method), ["GET", "POST", "GET"]);
+});
+
+test("does not create a duplicate when the client order ID already exists", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({
+        orderId: 99, clientOrderId: "paper-existing-1", symbol: "BTCUSDT",
+        side: "BUY", type: "LIMIT", status: "NEW", origQty: "0.001",
+        executedQty: "0", price: "65000", updateTime: 1_800_000_000_002
+      }), {status: 200, headers: {"content-type": "application/json"}});
+    }
+  });
+  const result = await client.submitLimitOrder({
+    symbol: "BTCUSDT", side: "BUY", quantity: "0.001", price: "65000",
+    clientOrderId: "paper-existing-1",
+    riskPlan: {
+      approved: true, quantity: 0.001, notional: 65,
+      assumptions: {leverage: false, shorting: false}
+    }
+  });
+  assert.equal(result.status, "existing_client_order_reconciled");
+  assert.deepEqual(calls, ["GET"]);
+});
+
+test("refuses to submit when the risk plan is absent or outside the notional cap", async () => {
+  let calls = 0;
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 50,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async () => { calls++; throw new Error("must not be called"); }
+  });
+  await assert.rejects(client.submitLimitOrder({
+    symbol: "BTCUSDT", side: "BUY", quantity: "0.001", price: "65000",
+    clientOrderId: "paper-over-cap"
+  }), /risk_plan_invalid_or_over_cap/);
+  assert.equal(calls, 0);
 });
