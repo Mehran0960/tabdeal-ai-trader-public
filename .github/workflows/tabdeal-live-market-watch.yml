@@ -10,11 +10,11 @@ on:
       - "tests/tabdeal-live-market-watch-irt.test.mjs"
       - ".github/workflows/tabdeal-live-market-watch.yml"
       - "package.json"
-  # A completed successful session starts the next bounded session. This avoids
-  # queuing dozens of 335-minute jobs behind a five-minute cron schedule.
-  workflow_run:
-    workflows: ["Tabdeal Continuous Spot Market Watch"]
-    types: [completed]
+  # Runs are 335 minutes long. Scheduling every five hours leaves at most one
+  # pending run in the serialized concurrency group; it starts when the active
+  # session ends instead of creating a large queue of stale runs.
+  schedule:
+    - cron: "0 */5 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -45,9 +45,7 @@ concurrency:
 
 jobs:
   watch:
-    # Continue the chain only after a successful previous session. A broken
-    # workflow must not create an infinite retry loop.
-    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
@@ -76,7 +74,7 @@ jobs:
           INPUT_DURATION: ${{ inputs.duration_minutes || '3' }}
           INPUT_MAX_MARKETS: ${{ inputs.max_markets || '1200' }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_run" ]; then
+          if [ "$EVENT_NAME" = "schedule" ]; then
             echo "mode=continuous" >> "$GITHUB_OUTPUT"
             echo "duration=335" >> "$GITHUB_OUTPUT"
           elif [ "$EVENT_NAME" = "push" ]; then
