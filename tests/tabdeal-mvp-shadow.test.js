@@ -426,3 +426,24 @@ test("no-new-trades polling updates only the selected symbol state",async()=>{
   assert.ok(stateWrite);
   assert.equal(stateWrite.params.at(-2),"ETHUSDT");
 });
+
+
+test("quiet recent-trade windows keep explicit no-trade bars without loosening signal freshness",()=>{
+  const windowStart=1_800_000_000_000;
+  const nowMs=windowStart+240*60_000;
+  const rows=[
+    {id:"1",price:"100",quantity:"1",quoteQuantity:"100",
+      timeMs:windowStart-60_000,isBuyerMaker:false},
+    {id:"2",price:"101",quantity:"2",quoteQuantity:"202",
+      timeMs:windowStart+2*60_000,isBuyerMaker:true},
+    {id:"3",price:"102",quantity:"1",quoteQuantity:"102",
+      timeMs:windowStart+220*60_000,isBuyerMaker:false}
+  ];
+  const result=buildTabdealRecentTradeCandles(rows,nowMs,240,0,"ETHUSDT");
+  assert.equal(result.status,"complete");
+  assert.equal(result.candles.length,240);
+  assert.equal(result.noTradeMinuteCount,237);
+  assert.equal(result.candles.at(-1).coverage_status,"no_trade");
+  assert.equal(result.candles.at(-1).close_price,"102");
+  assert.ok(result.candles.every(candle=>candle.symbol==="ETHUSDT"));
+});
