@@ -149,8 +149,10 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
     throw new Error("one_usdt_limit_quantity_outside_lot_filter");
   }
   const quantity = unitsDecimal(quantityUnits, quantityPrecision);
-  const exactNotionalQuoteUnits = (limitPriceUnits * quantityUnits * (10n ** 8n)) / scale;
-  const exceedsQuoteBudget = limitPriceUnits * quantityUnits * (10n ** 8n) > capUnits * scale;
+  const notionalNumerator = limitPriceUnits * quantityUnits * (10n ** 8n);
+  const notionalDenominator = scale;
+  const exactNotionalQuoteUnits = (notionalNumerator + notionalDenominator / 2n) / notionalDenominator;
+  const exceedsQuoteBudget = notionalNumerator > capUnits * scale;
   if (quantityUnits <= 0n || exceedsQuoteBudget) {
     throw new Error("limit_notional_exceeds_one_usdt");
   }
@@ -164,7 +166,20 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
   if (!minNotional || minNotionalUnits === null ||
       exactNotionalQuoteUnits < minNotionalUnits ||
       minNotional > Number(quoteBudget)) {
-    throw new Error("limit_notional_below_venue_minimum");
+    const error = new Error("limit_notional_below_venue_minimum");
+    error.diagnostics = {
+      symbol: symbolInfo.symbol,
+      quoteBudget,
+      limitPrice: limitPrice,
+      baseQuantity: quantity,
+      calculatedQuoteNotional: unitsDecimal(exactNotionalQuoteUnits, 8),
+      minimumQuoteNotional: minNotionalFilter?.minNotional ?? null,
+      priceTickSize: priceFilter.tickSize,
+      quantityStepSize: lot.stepSize,
+      pricePrecision,
+      quantityPrecision
+    };
+    throw error;
   }
 
   const visibleAskQuantity = asks
@@ -218,15 +233,13 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
   }
   const makerCommission = Number(account.makerCommission);
   const takerCommission = Number(account.takerCommission);
-  if (!Number.isSafeInteger(makerCommission) || makerCommission < 0 ||
-      !Number.isSafeInteger(takerCommission) || takerCommission < 0 ||
-      makerCommission > 10_000 || takerCommission > 10_000) {
-    throw new Error("account_spot_commission_rate_unavailable");
-  }
-  const commissionBps = Math.max(makerCommission, takerCommission);
-  const quoteBudgetUnits = (100_000_000n * 10_000n) / (10_000n + BigInt(commissionBps));
-  const quoteBudget = unitsDecimal(quoteBudgetUnits, 8);
-  if (!(Number(quoteBudget) > 0)) throw new Error("quote_budget_after_fees_zero");
+  const commissionBps =
+    Number.isSafeInteger(makerCommission) && makerCommission >= 0 && makerCommission <= 10_000 &&
+    Number.isSafeInteger(takerCommission) && takerCommission >= 0 && takerCommission <= 10_000
+      ? Math.max(makerCommission, takerCommission) : null;
+  // The user's order amount is the quote notional; do not subtract a fee reserve.
+  // Tabdeal reports the actual commission and commissionAsset on each fill.
+  const quoteBudget = ONE_SHOT_QUOTE_AMOUNT;
   if (!Array.isArray(openOrders) || openOrders.length !== 0) {
     throw new Error("existing_btcusdt_open_orders_present");
   }
@@ -436,6 +449,7 @@ export async function runTabdealOneShotBuy({
       ...base,
       result: "preflight_blocked",
       reason: String(error?.message || error).slice(0, 160),
+      diagnostics: isRecord(error?.diagnostics) ? error.diagnostics : null,
       orderSubmitted: false
     };
   }
@@ -542,6 +556,7 @@ export function safeOneShotSummary(report) {
     orderType: report.preflight?.type ?? report.orderType,
     result: report.result,
     reason: report.reason ?? null,
+    diagnostics: report.diagnostics ?? null,
     httpStatus: report.httpStatus ?? null,
     apiErrorCode: report.apiErrorCode ?? null,
     apiMessage: report.apiMessage ?? null,
@@ -575,7 +590,8 @@ async function main() {
         "- Order status: " + report.order.status + "\n" +
         "- Filled base quantity: " + (report.order.executedQuantity ?? "not reported") + "\n" +
         "- Quote quantity: " + (report.order.cumulativeQuoteQuantity ?? "not reported") + "\n" : "") +
-      (report.reason ? "- Block reason: " + report.reason + "\n" : "")
+      (report.reason ? "- Block reason: " + report.reason + "\n" : "") +
+      (report.diagnostics ? "- Preflight diagnostics: " + JSON.stringify(report.diagnostics) + "\n" : "")
     );
   }
   if (!report.orderSubmitted || report.orderSubmitted === "unknown" || !report.order) {
