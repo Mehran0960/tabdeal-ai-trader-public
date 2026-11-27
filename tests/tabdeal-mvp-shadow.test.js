@@ -75,7 +75,7 @@ test("blocks stale 4h history and never forward fills", () => {
   assert.equal(report.executionGate, "BLOCKED_KRAKEN_DATA");
 });
 
-test("rejects Kraken error payloads instead of substituting another source", () => {
+test("rejects Kraken API error payloads instead of substituting another source", () => {
   const report = evaluate({error: ["EGeneral:Temporary lockout"], result: {}});
   assert.equal(report.data.status, "invalid_or_stale");
   assert.equal(report.executionGate, "BLOCKED_KRAKEN_DATA");
