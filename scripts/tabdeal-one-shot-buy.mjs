@@ -108,13 +108,20 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
   const maxPrice = positive(priceFilter?.maxPrice);
   if (!minQty || !stepSize || !tickSize) throw new Error("limit_lot_or_price_filter_missing");
 
-  const pricePrecision = Math.max(precisionOf(bestAskText), precisionOf(priceFilter.tickSize));
+  const pricePrecision = Math.max(
+    precisionOf(bestAskText),
+    precisionOf(priceFilter.tickSize),
+    precisionOf(priceFilter.minPrice),
+    precisionOf(priceFilter.maxPrice)
+  );
   const quantityPrecision = Math.max(
     precisionOf(lot.stepSize),
     precisionOf(lot.minQty),
     precisionOf(lot.maxQty ?? lot.stepSize)
   );
-  if (pricePrecision > 12 || quantityPrecision > 12) throw new Error("filter_precision_unsupported");
+  if (pricePrecision > 24 || quantityPrecision > 24) {
+    throw new Error("filter_precision_unsupported_p" + pricePrecision + "_q" + quantityPrecision);
+  }
 
   const bestAskUnits = decimalUnits(bestAskText, pricePrecision);
   const tickUnits = decimalUnits(priceFilter.tickSize, pricePrecision);
@@ -123,32 +130,39 @@ function limitBuyForOneUsdt({symbolInfo, asks, bestAskText, quoteBudget}) {
   if (limitPriceUnits < bestAskUnits) throw new Error("no_valid_limit_tick_within_slippage_cap");
   const limitPrice = unitsDecimal(limitPriceUnits, pricePrecision);
   const limitPriceNumber = Number(limitPrice);
-  if ((minPrice !== null && limitPriceNumber < minPrice) ||
-      (maxPrice !== null && limitPriceNumber > maxPrice)) {
+  const minPriceUnits = priceFilter.minPrice ? decimalUnits(priceFilter.minPrice, pricePrecision) : 0n;
+  const maxPriceUnitsFilter = priceFilter.maxPrice ? decimalUnits(priceFilter.maxPrice, pricePrecision) : null;
+  if (limitPriceUnits < minPriceUnits ||
+      (maxPriceUnitsFilter !== null && limitPriceUnits > maxPriceUnitsFilter)) {
     throw new Error("limit_price_outside_price_filter");
   }
 
   const stepUnits = decimalUnits(lot.stepSize, quantityPrecision);
   const capUnits = decimalUnits(quoteBudget, 8);
   const scale = 10n ** BigInt(pricePrecision + quantityPrecision);
-  const quoteScale = 10n ** 8n;
-  const maxQuantityUnits = (capUnits * scale) / (quoteScale * limitPriceUnits);
+  const maxQuantityUnits = (capUnits * scale) / (10n ** 8n * limitPriceUnits);
   const quantityUnits = (maxQuantityUnits / stepUnits) * stepUnits;
   const minimumQuantityUnits = decimalUnits(lot.minQty, quantityPrecision);
+  const maximumQuantityUnits = lot.maxQty ? decimalUnits(lot.maxQty, quantityPrecision) : null;
   if (quantityUnits < minimumQuantityUnits ||
-      (maxQty !== null && Number(unitsDecimal(quantityUnits, quantityPrecision)) > maxQty)) {
+      (maximumQuantityUnits !== null && quantityUnits > maximumQuantityUnits)) {
     throw new Error("one_usdt_limit_quantity_outside_lot_filter");
   }
   const quantity = unitsDecimal(quantityUnits, quantityPrecision);
-  const notional = limitPriceNumber * Number(quantity);
-  if (!Number.isFinite(notional) || notional <= 0 ||
-      notional > Number(quoteBudget) + 1e-12) {
+  const exactNotionalQuoteUnits = (limitPriceUnits * quantityUnits * (10n ** 8n)) / scale;
+  const exceedsQuoteBudget = limitPriceUnits * quantityUnits * (10n ** 8n) > capUnits * scale;
+  if (quantityUnits <= 0n || exceedsQuoteBudget) {
     throw new Error("limit_notional_exceeds_one_usdt");
   }
+  const notional = Number(unitsDecimal(exactNotionalQuoteUnits, 8));
+  if (!Number.isFinite(notional) || notional <= 0) throw new Error("limit_notional_invalid");
 
   const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
   const minNotional = positive(minNotionalFilter?.minNotional);
-  if (!minNotional || notional + 1e-10 < minNotional ||
+  const minNotionalUnits = minNotionalFilter?.minNotional
+    ? decimalUnits(minNotionalFilter.minNotional, 8) : null;
+  if (!minNotional || minNotionalUnits === null ||
+      exactNotionalQuoteUnits < minNotionalUnits ||
       minNotional > Number(quoteBudget)) {
     throw new Error("limit_notional_below_venue_minimum");
   }
