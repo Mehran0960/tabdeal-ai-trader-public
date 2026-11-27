@@ -215,7 +215,7 @@ async function lookupByClientId({clientId, apiKey, apiSecret, fetchImpl}) {
   const {response, data} = await signedGet("/order", {
     symbol: ONE_SHOT_SYMBOL,
     origClientOrderId: clientId
-  }, apiKey, apiSecret);
+  }, apiKey, apiSecret, fetchImpl);
   if (response.status === 404 && isRecord(data) && Number(apiCode(data)) === 1204) return null;
   if (!response.ok) throw new Error("order_lookup_unclassified_http_" + response.status);
   const order = normalizedOrder(data, clientId);
@@ -303,7 +303,7 @@ export async function runTabdealOneShotBuy({
   let postResponse;
   let postData;
   try {
-    postResponse = await fetch(API_BASE + "/api/v1/order", {
+    postResponse = await fetchImpl(API_BASE + "/api/v1/order", {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -318,7 +318,7 @@ export async function runTabdealOneShotBuy({
   } catch {
     // POST may have reached the exchange. Reconcile by the unique client ID; never retry POST.
     try {
-      const reconciled = await lookupByClientId({clientId, apiKey, apiSecret});
+      const reconciled = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl});
       if (reconciled) {
         return {...base, result: "reconciled_after_uncertain_post", preflight, order: reconciled, orderSubmitted: true};
       }
