@@ -99,9 +99,8 @@ Requires all data and strategy gates to pass, written verification of Tabdeal ac
 
 ## Continuous full-universe market watch — 2026-11-27
 
-- Replaced the five-minute cron schedule for the 335-minute watcher with a completion-triggered chain: each successful `Tabdeal Continuous Spot Market Watch` run starts the next bounded session. This avoids accumulating queued long-running jobs and substantially reduces monitoring gaps on GitHub-hosted runners.
-- A push to the watcher code starts a short probe; after a successful probe, the chain moves into 335-minute continuous sessions. A manual `workflow_dispatch` can still request probe or continuous mode.
-- The chain only restarts after a successful prior run. A failed workflow does not recursively retry forever; it requires inspection and manual restart.
+- The initial self-triggering `workflow_run` experiment was rejected by GitHub Actions before any job started; it was removed rather than left deployed.
+- The active design uses a five-hour cron cadence for 335-minute observation sessions. Because the concurrency group permits one running and one pending run, the next session waits for the current one to finish instead of creating a backlog of many stale 335-minute runs. A push to watcher code still starts a short probe; manual `workflow_dispatch` remains available.
 - Concurrency remains serialized and rolling market history is checkpointed to `signal-history`. The current cap remains 1,200 active Spot markets; the latest verified probe covered 1,017/1,017.
-- This is best-effort near-continuous monitoring, not a guaranteed 24/7 daemon: GitHub runner startup, completion-event delivery, hosted-runner limits and exchange disconnects can still create gaps. The watcher is observation-only; no account balances are read and no exchange orders or funds movements are performed.
+- This is best-effort near-continuous monitoring, not a guaranteed 24/7 daemon: scheduled-run delays/drops, runner startup, hosted-runner limits and exchange disconnects can still create gaps. The watcher is observation-only; no account balances are read and no exchange orders or funds movements are performed.
 - **Next gates before any automated swap:** confirm Tabdeal order-book snapshot/delta and sequence semantics; verify quote-unit settlement and fee schedule; establish a fresh profitable forward-Paper record after costs; then separately implement and audit balance-aware two-leg execution, partial-fill recovery, idempotency and hard risk controls. The 20% drawdown limit is not relaxed.
