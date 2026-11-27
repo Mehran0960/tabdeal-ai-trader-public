@@ -5,7 +5,8 @@ import {
   assessTabdealTradePageCoverage,
   aggregateTabdealTradeCandles,
   mergeTabdealTradeCandle,
-  buildTabdealTradeCaptureHealth
+  buildTabdealTradeCaptureHealth,
+  shouldRunTabdealQuarterHourScan
 } from "../workers/tabdeal-mvp-shadow/index.js";
 
 const minute = 60_000;
@@ -182,4 +183,20 @@ test("requires 240 consecutive minutes before a local four-hour history window i
   const health = buildTabdealTradeCaptureHealth(state, rows, now);
   assert.equal(health.captureReady, true);
   assert.equal(health.fourHourHistoryReady, true);
+});
+
+test("runs the legacy Shadow scan at each quarter-hour for epoch seconds and milliseconds", () => {
+  const quarterHourMs = Date.parse("2026-11-27T08:15:00.000Z");
+  const nonQuarterHourMs = Date.parse("2026-11-27T08:16:00.000Z");
+  assert.equal(shouldRunTabdealQuarterHourScan({scheduledTime: quarterHourMs / 1000}), true);
+  assert.equal(shouldRunTabdealQuarterHourScan({scheduledTime: quarterHourMs}), true);
+  assert.equal(shouldRunTabdealQuarterHourScan({scheduledTime: nonQuarterHourMs / 1000}), false);
+  assert.equal(shouldRunTabdealQuarterHourScan({scheduledTime: nonQuarterHourMs}), false);
+});
+
+test("uses the supplied clock if scheduled time is missing or invalid", () => {
+  const quarterHourMs = Date.parse("2026-11-27T08:30:00.000Z");
+  const nonQuarterHourMs = Date.parse("2026-11-27T08:31:00.000Z");
+  assert.equal(shouldRunTabdealQuarterHourScan({}, quarterHourMs), true);
+  assert.equal(shouldRunTabdealQuarterHourScan({scheduledTime: "invalid"}, nonQuarterHourMs), false);
 });
