@@ -11,7 +11,8 @@ import {
   createTabdealLiveWatchState,
   updateTabdealLiveMinuteBar,
   evaluateTabdealRelativeWatch,
-  summarizeTabdealLiveWatch
+  summarizeTabdealLiveWatch,
+  resolveTabdealSocketAckWaiters
 } from "../src/tabdeal-live-market-watch.js";
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -275,11 +276,7 @@ async function main(){
       if(closedHandled)return;
       closedHandled=true;
       clearTimeout(connectionTimer);
-      for(const [id,waiter] of [...ackWaiters.entries()]){
-        if(waiter.ws===ws){
-          waiter.resolve({ok:false,error:{id,code:"websocket_disconnected"}});
-        }
-      }
+      resolveTabdealSocketAckWaiters(ackWaiters,ws,"websocket_disconnected");
       if(ws===activeSocket){
         activeSocket=null;
         try{ws.close();}catch{}
