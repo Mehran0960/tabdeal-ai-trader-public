@@ -1,0 +1,41 @@
+name: Tabdeal signed POST negative-payload permission probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/tabdeal-order-post-permission-probe.mjs"
+      - "tests/tabdeal-order-post-permission-probe.test.mjs"
+      - ".github/workflows/tabdeal-order-post-permission-probe.yml"
+  workflow_dispatch:
+    inputs:
+      confirm_invalid_payload_probe:
+        description: "Confirm one signed POST with an impossible symbol, invalid side/type and zero quantity; no valid order"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-post-negative-permission-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && (github.event_name == 'push' || inputs.confirm_invalid_payload_probe == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify negative-payload safety tests
+        run: node --test tests/tabdeal-order-post-permission-probe.test.mjs
+      - name: Probe signed Spot POST with an impossible order payload
+        env:
+          TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
+          TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
+        run: node scripts/tabdeal-order-post-permission-probe.mjs
