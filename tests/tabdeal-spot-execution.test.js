@@ -175,3 +175,113 @@ test("refuses to submit when the risk plan is absent or outside the notional cap
   }), /risk_plan_invalid_or_over_cap/);
   assert.equal(calls, 0);
 });
+
+test("halts before POST when pre-submit order lookup has a server error", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({code: 9000, msg: "temporary failure"}), {
+        status: 503, headers: {"content-type": "application/json"}
+      });
+    }
+  });
+  const result = await client.submitLimitOrder({
+    symbol: "BTCUSDT", side: "BUY", quantity: "0.001", price: "65000",
+    clientOrderId: "paper-lookup-503",
+    riskPlan: {
+      approved: true, quantity: 0.001, notional: 65,
+      assumptions: {leverage: false, shorting: false}
+    }
+  });
+  assert.equal(result.status, "pre_submit_lookup_failed_halt");
+  assert.deepEqual(calls, ["GET"]);
+});
+
+test("halts before POST when a successful order lookup response has no order identity", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({status: "ok"}), {
+        status: 200, headers: {"content-type": "application/json"}
+      });
+    }
+  });
+  const result = await client.submitLimitOrder({
+    symbol: "BTCUSDT", side: "BUY", quantity: "0.001", price: "65000",
+    clientOrderId: "paper-lookup-malformed",
+    riskPlan: {
+      approved: true, quantity: 0.001, notional: 65,
+      assumptions: {leverage: false, shorting: false}
+    }
+  });
+  assert.equal(result.status, "pre_submit_lookup_failed_halt");
+  assert.deepEqual(calls, ["GET"]);
+});
+
+test("rejects actual order notional above the cap even if supplied risk metadata understates it", async () => {
+  let calls = 0;
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async () => { calls++; throw new Error("must not be called"); }
+  });
+  await assert.rejects(client.submitLimitOrder({
+    symbol: "BTCUSDT", side: "BUY", quantity: "0.002", price: "65000",
+    clientOrderId: "paper-actual-over-cap",
+    riskPlan: {
+      approved: true, quantity: 0.002, notional: 100,
+      assumptions: {leverage: false, shorting: false}
+    }
+  }), /order_notional_exceeds_approved_risk_plan/);
+  assert.equal(calls, 0);
+});
+
+test("emergency cancellation remains available when the kill switch is active", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: false,
+    killSwitch: true,
+    explicitOwnerApproval: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({
+        orderId: 88, clientOrderId: "paper-cancel-1", symbol: "BTCUSDT",
+        side: "BUY", type: "LIMIT", status: "CANCELED", origQty: "0.001",
+        executedQty: "0", price: "65000", updateTime: 1_800_000_000_003
+      }), {status: 200, headers: {"content-type": "application/json"}});
+    }
+  });
+  const result = await client.cancelOrder({symbol: "BTCUSDT", orderId: 88});
+  assert.equal(result.status, "cancel_response_received");
+  assert.deepEqual(calls, ["DELETE"]);
+});
+
+test("emergency cancellation still requires explicit owner approval", async () => {
+  let calls = 0;
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    fetchImpl: async () => { calls++; throw new Error("must not be called"); }
+  });
+  await assert.rejects(client.cancelOrder({symbol: "BTCUSDT", orderId: 88}),
+    /cancel_owner_approval_required/);
+  assert.equal(calls, 0);
+});

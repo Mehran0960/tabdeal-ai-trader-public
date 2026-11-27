@@ -208,7 +208,22 @@ export function createTabdealSpotExecutionClient({
       signal: AbortSignal.timeout(timeoutMs)
     });
     const data = await response.json().catch(() => null);
-    return response.ok ? safeOrder(data, clientOrderId) : null;
+    if (response.status === 404) return null;
+    if (!response.ok) fail("tabdeal_order_lookup_http_" + response.status);
+    const order = safeOrder(data, clientOrderId);
+    if (!order) fail("tabdeal_order_lookup_payload_invalid");
+    return order;
+  };
+
+  const assertCancelGate = () => {
+    // Cancellation is risk-reducing and must remain available after the kill
+    // switch disables new entries. It still requires a separately approved
+    // live-pilot configuration and valid credentials.
+    if (explicitOwnerApproval !== true) fail("tabdeal_cancel_owner_approval_required");
+    if (typeof fetchImpl !== "function") fail("tabdeal_fetch_unavailable");
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+      fail("tabdeal_timeout_invalid");
+    }
   };
 
   return Object.freeze({
@@ -223,6 +238,12 @@ export function createTabdealSpotExecutionClient({
           intent.riskPlan.assumptions?.leverage !== false ||
           intent.riskPlan.assumptions?.shorting !== false) {
         fail("tabdeal_risk_plan_invalid_or_over_cap");
+      }
+      const actualOrderNotional = Number(intent.quantity) * Number(intent.price);
+      if (!Number.isFinite(actualOrderNotional) || actualOrderNotional <= 0 ||
+          actualOrderNotional > Number(maxOrderNotionalQuote) ||
+          actualOrderNotional > Number(intent.riskPlan.notional) * 1.000001) {
+        fail("tabdeal_order_notional_exceeds_approved_risk_plan");
       }
       let priorOrder;
       try {
@@ -254,9 +275,19 @@ export function createTabdealSpotExecutionClient({
         const data = await response.json().catch(() => null);
         if (response.ok) {
           const order = safeOrder(data, intent.clientOrderId);
-          return order
-            ? {status: "accepted", order, automaticRetry: false}
-            : {status: "accepted_response_unreconciled", order: null, automaticRetry: false};
+          if (order) return {status: "accepted", order, automaticRetry: false};
+          try {
+            const reconciled = await getOrder({
+              symbol: intent.symbol,
+              clientOrderId: intent.clientOrderId
+            });
+            if (reconciled) {
+              return {status: "reconciled_after_uncertain_acceptance", order: reconciled, automaticRetry: false};
+            }
+          } catch {
+            // A successful but malformed POST response remains uncertain.
+          }
+          return {status: "accepted_response_unreconciled", order: null, automaticRetry: false};
         }
         if (response.status < 500) {
           return {
@@ -293,7 +324,7 @@ export function createTabdealSpotExecutionClient({
     },
 
     async cancelOrder({symbol, orderId, clientOrderId, timestamp = Date.now()} = {}) {
-      assertLiveGate();
+      assertCancelGate();
       const request = await buildTabdealCancelOrderRequest({
         symbol, orderId, clientOrderId, apiKey, apiSecret, timestamp,
         receiveWindowMs, allowedSymbols
