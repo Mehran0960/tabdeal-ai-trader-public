@@ -1,4 +1,4 @@
-name: Tabdeal signed TRADE capability check (read-only, strict error-code classification v2)
+name: Tabdeal read-only account and open-orders checks (order lookup informational)
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
           node-version: 22
       - name: Verify strict read-only audit guard tests
         run: node --test tests/tabdeal-account-readonly-audit.test.mjs
-      - name: Check signed account and order-read access only
+      - name: Check account and open-order reads; report order lookup separately
         env:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
