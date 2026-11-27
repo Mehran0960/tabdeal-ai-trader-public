@@ -444,7 +444,7 @@ export async function runTabdealOneShotBuy({
     checkedAt: new Date().toISOString(),
     symbol: ONE_SHOT_SYMBOL,
     quoteAsset: ONE_SHOT_QUOTE_ASSET,
-    quoteAmountCap: ONE_SHOT_QUOTE_AMOUNT,
+    quoteAmountInput: ONE_SHOT_QUOTE_AMOUNT,
     side: "BUY",
     orderType: "MARKET",
     automaticRetry: false,
@@ -587,7 +587,8 @@ export function safeOneShotSummary(report) {
   return {
     checkedAt: report.checkedAt,
     symbol: report.symbol,
-    quoteAmountCap: report.quoteAmountCap,
+    quoteAmountInput: report.quoteAmountInput,
+    maxTotalDebitQuoteCap: report.preflight?.maxTotalDebitQuote ?? report.diagnostics?.maxTotalDebitQuote ?? null,
     side: report.side,
     orderType: report.preflight?.type ?? report.orderType,
     result: report.result,
