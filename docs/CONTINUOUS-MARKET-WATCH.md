@@ -74,7 +74,7 @@ This design aims for near-continuous observation within GitHub-hosted-runner con
 
 The first 3-minute probe, before IRT monitoring was enabled, selected all 510 USDT-quoted active Spot markets from 1,017 exchangeInfo entries. All 510 subscription requests were acknowledged, all 510 markets emitted valid messages, and 40,782 depth messages were received with a mean event lag of about 120 ms, maximum lag 532 ms, zero malformed messages and zero reconnects. At the final snapshot, 85 markets met the provisional spread and both-side depth filters (spread <=35 bps and top-five bid/ask depth >=1,000 USDT). No market emitted sequence/update-ID metadata, so snapshot/delta semantics remain unresolved. The 3-minute probe was too short to warm the 16-minute opportunity history, and no candidate was produced.
 
-After enabling IRT as a separate quote group, a new full-universe probe is required to validate live subscription coverage for all 1,017 entries. Do not assume the previous 510-symbol test proves the expanded IRT group is subscribed.
+
 
 ## Promotion and live-trading gates
 
@@ -90,3 +90,17 @@ Before any actual swap is considered, separately require:
 7. Explicit approval before a real-money pilot.
 
 Until all gates pass, real orders remain disabled and the watcher is not an auto-trader.
+
+
+## Expanded full-universe probe — 2026-11-27
+
+The post-IRT implementation probe [run 46049725106](https://github.com/Mehran0960/tabdeal-ai-trader-public/actions/runs/46049725106) observed for 182.3 seconds and successfully selected all **1,017 / 1,017** active Spot markets returned by exchangeInfo: 510 USDT-quoted and 507 IRT-quoted. All 1,017 subscriptions were acknowledged across 41 batches; all 1,017 symbols emitted messages, with 80,766 valid depth messages, zero invalid/ignored messages, zero rejected subscriptions, zero reconnects, and no symbols without updates. Mean event lag was 139.6 ms and maximum observed lag was 709 ms. No symbol exposed a recognized sequence/update-ID field.
+
+At the final snapshot:
+- USDT group: 91 / 510 had spread <=35 bps; 415 / 510 had at least 1,000 USDT-equivalent top-five quote depth on each side; 87 / 510 passed both spread and depth filters.
+- IRT group: 32 / 507 had spread <=35 bps. IRT depth is screened relative to each market's published minimum notional in IRT units; do not compare IRT depth to USDT depth or infer a toman/rial conversion.
+- No quote unit or order-book sequence semantics were inferred for IRT.
+- The scanner remained warming_up, with no opportunity candidate, because the 3-minute probe is shorter than the required 16-minute contiguous history. This was expected; no real or virtual order was authorized.
+- Rolling history for 1,017 symbols was checkpointed successfully to signal-history.
+
+This verifies public feed reachability and broad observation coverage, not profitable strategy performance or execution readiness.
