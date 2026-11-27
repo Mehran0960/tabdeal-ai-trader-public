@@ -1,0 +1,37 @@
+name: Tabdeal public market liquidity and activity scout (GET-only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ops/tabdeal-public-market-scout-20261127
+    paths:
+      - ".github/workflows/tabdeal-public-market-scout.yml"
+      - "scripts/tabdeal-market-scout.mjs"
+      - "src/tabdeal-market-data.js"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-public-market-scout
+  cancel-in-progress: false
+
+jobs:
+  public-market-scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Collect public Spot metadata, orderbooks and recent trades
+        run: node scripts/tabdeal-market-scout.mjs
+      - name: Preserve the read-only market snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-public-market-scout
+          path: artifacts/tabdeal-market-data/tabdeal-public-market-*.json
+          if-no-files-found: error
+          retention-days: 7
