@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {evaluateTabdealMvpShadow, buildShadowHealth} from "../workers/tabdeal-mvp-shadow/index.js";
+import {
+  evaluateTabdealMvpShadow, buildShadowHealth, runTabdealLocalPaperCapture,
+  updateTabdealLocalPaperMarkouts
+} from "../workers/tabdeal-mvp-shadow/index.js";
 
 const interval = 4 * 60 * 60 * 1000;
 const nowMs = Date.parse("2026-11-27T08:00:00.000Z");
@@ -167,4 +170,98 @@ test("health endpoint fails closed on invalid scan timestamp", () => {
   });
   assert.equal(health.status, "invalid_report_time");
   assert.equal(health.fresh, false);
+});
+
+
+test("local forward-paper capture records WAIT without account access or exchange orders",async()=>{
+  const start=Date.parse("2026-11-27T00:00:00.000Z");
+  const rows=[];
+  let prior=60_000;
+  for(let i=0;i<240;i++){
+    const close=prior+0.5;
+    rows.push({
+      minute_open_ms:start+i*60_000,
+      open_price:String(prior),high_price:String(close+1),low_price:String(prior-1),
+      close_price:String(close),quote_volume:"100",trade_count:1,
+      continuity_epoch:0,coverage_status:"complete",is_closed:1
+    });
+    prior=close;
+  }
+  const nowMs=start+240*60_000+5_000;
+  const state={
+    last_successful_poll_at_ms:nowMs-5_000,
+    last_trade_time_ms:nowMs-5_000,
+    continuity_epoch:0,last_poll_status:"captured"
+  };
+  const writes=[];
+  const db={
+    prepare(sql){
+      let params=[];
+      const bound={
+        bind(...values){params=values;return bound;},
+        async first(){
+          if(sql.includes("SELECT last_successful_poll_at_ms"))return state;
+          if(sql.includes("SELECT candle_open_ms FROM tabdeal_local_paper_signals"))return null;
+          if(sql.includes("SELECT COUNT(*) AS evaluation_count"))return {
+            evaluation_count:1,buy_candidate_count:0,paper_entry_count:0,
+            completed_60m_count:0,avg_60m_net_bps_fee10:null,
+            avg_60m_net_bps_fee20:null,avg_60m_net_bps_fee40:null
+          };
+          throw new Error("unexpected_first_query");
+        },
+        async all(){
+          if(sql.includes("SELECT minute_open_ms,open_price"))return {results:[...rows].reverse()};
+          if(sql.includes("SELECT symbol,strategy_version,candle_open_ms,entry_price"))return {results:[]};
+          throw new Error("unexpected_all_query");
+        },
+        async run(){
+          writes.push({sql,params});
+          return {meta:{changes:1}};
+        }
+      };
+      return bound;
+    },
+    async batch(){throw new Error("unexpected_batch_for_wait_signal");}
+  };
+  const result=await runTabdealLocalPaperCapture({DB:db},{nowMs});
+  assert.equal(result.status,"ready");
+  assert.equal(result.signal,"WAIT");
+  assert.equal(result.paper.eligibleEntryRecorded,false);
+  assert.equal(result.liveTradingEnabled,false);
+  assert.equal(result.exchangeOrdersCreated,0);
+  const insert=writes.find(row=>row.sql.startsWith("INSERT OR IGNORE INTO tabdeal_local_paper_signals"));
+  assert.ok(insert);
+  assert.equal(insert.params[5],"WAIT");
+  assert.equal(insert.params[7],0);
+});
+
+
+
+test("forward paper markouts ignore carry-forward no-trade target candles",async()=>{
+  const writes=[];
+  const db={
+    prepare(sql){
+      const statement={
+        bind(...params){writes.push({sql,params});return statement;},
+        async all(){return {results:[{
+          symbol:"BTCUSDT",strategy_version:"ema9-21-50-rsi14-macd-5m-v1",
+          candle_open_ms:1_800_000_000_000,entry_price:100,entry_spread_bps:10
+        }]}}
+      };
+      return statement;
+    },
+    async batch(items){writes.push(...items);return [];}
+  };
+  const close=async coverageStatus=>updateTabdealLocalPaperMarkouts({DB:db},[{
+    minuteOpenMs:1_800_000_000_000+5*60_000,close:102,
+    coverageStatus,tradeCount:coverageStatus==="complete"?2:0
+  }],1_800_000_000_000+6*60_000);
+  await close("no_trade");
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].sql.includes("SELECT symbol"),true);
+  writes.length=0;
+  await close("complete");
+  assert.equal(writes.length,3);
+  assert.equal(writes.slice(1).length,2);
+  assert.ok(writes.some(row=>row.sql?.includes("markout_5m_close_price")));
 });

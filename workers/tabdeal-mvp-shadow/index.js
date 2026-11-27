@@ -1,3 +1,13 @@
+import {
+  computeTabdealLocalIndicators,
+  assessTabdealLocalPaperBook,
+  calculateLocalPaperMarkout,
+  TABDEAL_LOCAL_PAPER_STRATEGY,
+  TABDEAL_LOCAL_PAPER_NOTIONAL_USDT,
+  TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS,
+  TABDEAL_LOCAL_PAPER_LATENCY_BUFFER_BPS
+} from "../../src/tabdeal-local-indicators.js";
+
 const KRAKEN_OHLC = "https://api.kraken.com/0/public/OHLC";
 const TABDEAL_API = "https://api1.tabdeal.org/r/api/v1";
 const SYMBOL = "BTCUSDT";
@@ -869,6 +879,235 @@ export function shouldRunTabdealQuarterHourScan(event, nowMs = Date.now()) {
   return new Date(scheduledAtMs).getUTCMinutes() % 15 === 0;
 }
 
+
+const LOCAL_PAPER_MARKOUTS = Object.freeze([
+  {minutes: 5, suffix: "5m"},
+  {minutes: 15, suffix: "15m"},
+  {minutes: 60, suffix: "60m"}
+]);
+
+export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
+  const pending = await env.DB.prepare(
+    "SELECT symbol,strategy_version,candle_open_ms,entry_price,entry_spread_bps " +
+    "FROM tabdeal_local_paper_signals WHERE paper_eligible=1 AND markout_60m_net_bps_fee10 IS NULL " +
+    "AND candle_open_ms>=? ORDER BY candle_open_ms LIMIT 10"
+  ).bind(nowMs - 65 * 60_000).all();
+  const byTime = new Map(candles.map(row => [row.minuteOpenMs, row]));
+  const statements = [];
+  for (const row of pending.results || []) {
+    const openMs = Number(row.candle_open_ms);
+    const entryPrice = Number(row.entry_price);
+    const spread = Number(row.entry_spread_bps);
+    for (const horizon of LOCAL_PAPER_MARKOUTS) {
+      const closeRow = byTime.get(openMs + horizon.minutes * 60_000);
+      // A carry-forward no-trade minute is not an observed exit price.
+      if (!closeRow || closeRow.coverageStatus !== "complete" || closeRow.tradeCount < 1) continue;
+      const base = calculateLocalPaperMarkout({
+        entryPrice, exitClose: closeRow.close, entrySpreadBps: spread,
+        feeBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS[0]
+      });
+      const fee20 = calculateLocalPaperMarkout({
+        entryPrice, exitClose: closeRow.close, entrySpreadBps: spread,
+        feeBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS[1]
+      });
+      const fee40 = calculateLocalPaperMarkout({
+        entryPrice, exitClose: closeRow.close, entrySpreadBps: spread,
+        feeBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS[2]
+      });
+      const suffix = horizon.suffix;
+      statements.push(env.DB.prepare(
+        "UPDATE tabdeal_local_paper_signals SET " +
+        "markout_" + suffix + "_close_price=?,markout_" + suffix + "_modeled_exit_price=?," +
+        "markout_" + suffix + "_gross_bps=?,markout_" + suffix + "_net_bps_fee10=?," +
+        "markout_" + suffix + "_net_bps_fee20=?,markout_" + suffix + "_net_bps_fee40=?," +
+        "updated_at_ms=? WHERE symbol=? AND strategy_version=? AND candle_open_ms=? " +
+        "AND markout_" + suffix + "_close_price IS NULL"
+      ).bind(closeRow.close, base.modeledExitPrice, base.grossReturnBps,
+        base.netReturnBps, fee20.netReturnBps, fee40.netReturnBps, nowMs,
+        row.symbol, row.strategy_version, openMs));
+    }
+  }
+  if (statements.length) await env.DB.batch(statements);
+  return {resolvedMarkouts: statements.length};
+}
+
+export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}) {
+  const [state, result] = await Promise.all([
+    env.DB.prepare(
+      "SELECT last_successful_poll_at_ms,last_trade_time_ms,continuity_epoch,last_poll_status " +
+      "FROM tabdeal_spot_trade_state WHERE symbol=?"
+    ).bind(TRADE_STREAM_SYMBOL).first(),
+    env.DB.prepare(
+      "SELECT minute_open_ms,open_price,high_price,low_price,close_price,quote_volume," +
+      "trade_count,continuity_epoch,coverage_status,is_closed " +
+      "FROM tabdeal_spot_candles_1m WHERE symbol=? AND is_closed=1 " +
+      "ORDER BY minute_open_ms DESC LIMIT 240"
+    ).bind(TRADE_STREAM_SYMBOL).all()
+  ]);
+  if (!state || !result.results?.length) {
+    return {status: "not_ready", reason: "local_candle_history_unavailable", liveTradingEnabled: false};
+  }
+  const candles = [...result.results].reverse();
+  const pollAgeMs = nowMs - Number(state.last_successful_poll_at_ms);
+  const lastTradeAgeMs = nowMs - Number(state.last_trade_time_ms);
+  const analysis = computeTabdealLocalIndicators(candles, {
+    nowMs, pollAgeMs, lastTradeAgeMs, expectedBars: 240
+  });
+  if (!analysis.candles?.length) {
+    return {status: analysis.status, reason: analysis.reason, liveTradingEnabled: false};
+  }
+
+  const lastCandle = analysis.candles.at(-1);
+  await updateTabdealLocalPaperMarkouts(env, analysis.candles, nowMs);
+
+  let paperEligible = 0;
+  let entryPrice = null;
+  let entrySpreadBps = null;
+  let bookJson = null;
+  let decisionReason = analysis.reason;
+
+  if (analysis.status === "ready" && analysis.signal === "BUY_CANDIDATE") {
+    try {
+      const book = await getJson(TABDEAL_API + "/depth?symbol=" +
+        encodeURIComponent(TRADE_STREAM_SYMBOL) + "&limit=100");
+      const gate = assessTabdealLocalPaperBook(book);
+      bookJson = JSON.stringify({
+        ...gate, observedAt: new Date(nowMs).toISOString(),
+        source: "Tabdeal public Spot REST depth", sourceTimestampProvided: false
+      });
+      if (!gate.usable) {
+        decisionReason += "|paper_book_block:" + gate.reason;
+      } else {
+        const active = await env.DB.prepare(
+          "SELECT candle_open_ms FROM tabdeal_local_paper_signals WHERE symbol=? " +
+          "AND strategy_version=? AND paper_eligible=1 AND markout_60m_close_price IS NULL " +
+          "AND candle_open_ms>=? ORDER BY candle_open_ms DESC LIMIT 1"
+        ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY, nowMs - 65 * 60_000).first();
+        if (active?.candle_open_ms !== undefined) {
+          decisionReason += "|paper_block:prior_60m_observation_pending";
+        } else {
+          entryPrice = gate.ask * (1 + TABDEAL_LOCAL_PAPER_LATENCY_BUFFER_BPS / 10_000);
+          entrySpreadBps = gate.spreadBps;
+          paperEligible = 1;
+          decisionReason += "|forward_paper_entry_reference_recorded";
+        }
+      }
+    } catch (error) {
+      decisionReason += "|paper_book_unavailable:" +
+        String(error?.message || error).slice(0, 100);
+    }
+  }
+
+  const quality = analysis.dataQuality || {
+    status: analysis.status, reason: analysis.reason,
+    actualBars: analysis.candles.length
+  };
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO tabdeal_local_paper_signals (" +
+    "symbol,strategy_version,candle_open_ms,candle_close_ms,continuity_epoch,signal,reason," +
+    "paper_eligible,entry_price,reference_notional_usdt,entry_quantity,entry_spread_bps," +
+    "entry_observed_at_ms,indicators_json,quality_json,book_json,created_at_ms,updated_at_ms) " +
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(
+    TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY, lastCandle.minuteOpenMs,
+    lastCandle.minuteOpenMs + 60_000, lastCandle.continuityEpoch,
+    analysis.status === "ready" ? analysis.signal : "WAIT",
+    String(decisionReason || "signal_not_confirmed").slice(0, 240),
+    paperEligible, entryPrice, paperEligible ? TABDEAL_LOCAL_PAPER_NOTIONAL_USDT : null,
+    paperEligible ? TABDEAL_LOCAL_PAPER_NOTIONAL_USDT / entryPrice : null,
+    entrySpreadBps, paperEligible ? nowMs : null,
+    JSON.stringify(analysis.indicators || {}),
+    JSON.stringify(quality), bookJson, nowMs, nowMs
+  ).run();
+
+  await env.DB.prepare(
+    "DELETE FROM tabdeal_local_paper_signals WHERE candle_open_ms < ?"
+  ).bind(nowMs - 30 * 24 * 60 * 60_000).run();
+
+  const stats = await env.DB.prepare(
+    "SELECT COUNT(*) AS evaluation_count," +
+    "SUM(CASE WHEN signal='BUY_CANDIDATE' THEN 1 ELSE 0 END) AS buy_candidate_count," +
+    "SUM(CASE WHEN paper_eligible=1 THEN 1 ELSE 0 END) AS paper_entry_count," +
+    "SUM(CASE WHEN markout_60m_net_bps_fee10 IS NOT NULL THEN 1 ELSE 0 END) AS completed_60m_count," +
+    "AVG(markout_60m_net_bps_fee10) AS avg_60m_net_bps_fee10," +
+    "AVG(markout_60m_net_bps_fee20) AS avg_60m_net_bps_fee20," +
+    "AVG(markout_60m_net_bps_fee40) AS avg_60m_net_bps_fee40 " +
+    "FROM tabdeal_local_paper_signals WHERE symbol=? AND strategy_version=?"
+  ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY).first();
+
+  return {
+    status: analysis.status,
+    signal: analysis.status === "ready" ? analysis.signal : "WAIT",
+    reason: decisionReason,
+    indicators: analysis.indicators || null,
+    dataQuality: quality,
+    paper: {
+      eligibleEntryRecorded: paperEligible === 1,
+      virtualNotionalUsdt: paperEligible ? TABDEAL_LOCAL_PAPER_NOTIONAL_USDT : null,
+      feeScenariosBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS,
+      markoutHorizonsMinutes: [5, 15, 60],
+      summary: stats || null
+    },
+    liveTradingEnabled: false,
+    exchangeOrdersCreated: 0
+  };
+}
+
+async function readTabdealLocalPaperSummary(env) {
+  const [latest, stats] = await Promise.all([
+    env.DB.prepare(
+      "SELECT * FROM tabdeal_local_paper_signals WHERE symbol=? AND strategy_version=? " +
+      "ORDER BY candle_open_ms DESC LIMIT 1"
+    ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY).first(),
+    env.DB.prepare(
+      "SELECT COUNT(*) AS evaluation_count," +
+      "SUM(CASE WHEN signal='BUY_CANDIDATE' THEN 1 ELSE 0 END) AS buy_candidate_count," +
+      "SUM(CASE WHEN paper_eligible=1 THEN 1 ELSE 0 END) AS paper_entry_count," +
+      "SUM(CASE WHEN markout_5m_net_bps_fee10 IS NOT NULL THEN 1 ELSE 0 END) AS completed_5m_count," +
+      "SUM(CASE WHEN markout_15m_net_bps_fee10 IS NOT NULL THEN 1 ELSE 0 END) AS completed_15m_count," +
+      "SUM(CASE WHEN markout_60m_net_bps_fee10 IS NOT NULL THEN 1 ELSE 0 END) AS completed_60m_count," +
+      "AVG(markout_5m_net_bps_fee10) AS avg_5m_net_bps_fee10," +
+      "AVG(markout_15m_net_bps_fee10) AS avg_15m_net_bps_fee10," +
+      "AVG(markout_60m_net_bps_fee10) AS avg_60m_net_bps_fee10," +
+      "AVG(markout_60m_net_bps_fee20) AS avg_60m_net_bps_fee20," +
+      "AVG(markout_60m_net_bps_fee40) AS avg_60m_net_bps_fee40," +
+      "SUM(CASE WHEN markout_60m_net_bps_fee10>0 THEN 1 ELSE 0 END) AS wins_60m_fee10 " +
+      "FROM tabdeal_local_paper_signals WHERE symbol=? AND strategy_version=?"
+    ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY).first()
+  ]);
+  const parse = value => {
+    try { return value ? JSON.parse(value) : null; } catch { return null; }
+  };
+  return {
+    provider: "TABDEAL", market: "SPOT", symbol: TRADE_STREAM_SYMBOL,
+    strategyVersion: TABDEAL_LOCAL_PAPER_STRATEGY,
+    latest: latest ? {
+      candleCloseAt: new Date(Number(latest.candle_close_ms)).toISOString(),
+      signal: latest.signal, reason: latest.reason,
+      paperEligible: Number(latest.paper_eligible) === 1,
+      entryPrice: latest.entry_price === null ? null : Number(latest.entry_price),
+      indicators: parse(latest.indicators_json),
+      dataQuality: parse(latest.quality_json),
+      book: parse(latest.book_json),
+      markouts: {
+        fiveMinuteNetBpsFee10: latest.markout_5m_net_bps_fee10,
+        fifteenMinuteNetBpsFee10: latest.markout_15m_net_bps_fee10,
+        sixtyMinuteNetBpsFee10: latest.markout_60m_net_bps_fee10,
+        sixtyMinuteNetBpsFee20: latest.markout_60m_net_bps_fee20,
+        sixtyMinuteNetBpsFee40: latest.markout_60m_net_bps_fee40
+      }
+    } : null,
+    performance: stats || {},
+    feeScenariosBpsPerSide: TABDEAL_LOCAL_PAPER_FEE_SCENARIOS_BPS,
+    markoutHorizonsMinutes: [5, 15, 60],
+    virtualNotionalUsdt: TABDEAL_LOCAL_PAPER_NOTIONAL_USDT,
+    execution: {
+      paperOnly: true, liveTradingEnabled: false,
+      accountApiUsed: false, exchangeOrdersCreated: 0, fundsMoved: false
+    }
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -878,6 +1117,13 @@ export default {
         return json({provider: "TABDEAL", market: "SPOT", ...await readTabdealTradeCaptureHealth(env)});
       } catch {
         return json({provider: "TABDEAL", market: "SPOT", status: "unavailable", captureReady: false}, 503);
+      }
+    }
+    if (url.pathname === "/market-data/local-paper") {
+      try {
+        return json(await readTabdealLocalPaperSummary(env));
+      } catch {
+        return json({provider: "TABDEAL", market: "SPOT", status: "unavailable", liveTradingEnabled: false}, 503);
       }
     }
     if (url.pathname === "/health") {
@@ -910,6 +1156,13 @@ export default {
     const outcomes = await Promise.allSettled(tasks);
     if (outcomes.some(item => item.status === "rejected")) {
       throw new Error("tabdeal_shadow_scheduled_task_failed");
+    }
+    // Exploratory forward-paper evaluation uses only local closed Tabdeal candles.
+    // It records signal observations and fixed-horizon mark-outs; it never submits orders.
+    try {
+      await runTabdealLocalPaperCapture(env);
+    } catch (error) {
+      console.error("tabdeal_local_paper_capture_failed", String(error?.message || error));
     }
   }
 };
