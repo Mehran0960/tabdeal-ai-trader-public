@@ -172,7 +172,7 @@ export function buildTabdealRotationUniverse({
       baseAsset,
       quoteAsset: "USDT",
       quoteUnit: "USDT",
-      binanceQuoteVolumeUsdt,
+      binanceQuoteVolumeUsdt: quoteVolumeUsdt,
       quoteVolumeUsdt,
       tradeCount24h,
       lastPrice: positive(ticker.lastPrice) ? Number(ticker.lastPrice) : null,
