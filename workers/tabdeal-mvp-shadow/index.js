@@ -149,6 +149,10 @@ function normalizeTabdealBook(depth, nowMs, requestDurationMs) {
   const askDepth25Quote = asks.filter(([price]) => price <= mid * (1+bound))
     .reduce((sum, [price, qty]) => sum + price * qty, 0);
   const depth25Quote = bidDepth25Quote + askDepth25Quote;
+  // Require liquidity independently on both sides; aggregate depth can hide an unusable ask or bid book.
+  const bidDepthPass = bidDepth25Quote >= MIN_DEPTH_25_QUOTE;
+  const askDepthPass = askDepth25Quote >= MIN_DEPTH_25_QUOTE;
+  const depthPass = bidDepthPass && askDepthPass;
   return {
     symbol: SYMBOL,
     quoteUnit: "USDT",
@@ -160,8 +164,10 @@ function normalizeTabdealBook(depth, nowMs, requestDurationMs) {
     bidDepth25Quote,
     askDepth25Quote,
     depth25Quote,
+    bidDepthPass,
+    askDepthPass,
     spreadPass: spreadBps <= MAX_SPREAD_BPS,
-    depthPass: depth25Quote >= MIN_DEPTH_25_QUOTE
+    depthPass
   };
 }
 function errorCode(error, fallback) {
