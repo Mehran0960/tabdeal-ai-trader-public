@@ -5,6 +5,7 @@ const EPS = 1e-12;
 export const STRATEGY_TOURNAMENT_POLICY = Object.freeze({
   interval: "4h", intervalMs: INTERVAL_MS,
   minimumAlignedBars: MIN_BARS, minimumSymbols: 3, maximumSymbols: 20,
+  minimumHistoryBarsForDynamicUniverse: 2_000,
   discoveryFraction: 0.70, relativeLookbackBars: 60, relativeZWindowBars: 120,
   momentumLookbackBars: 60, volatilityLookbackBars: 30,
   trendFastEmaBars: 20, trendSlowEmaBars: 50,
@@ -109,11 +110,18 @@ export function normalizeStrategyTournamentHistory(rows,{nowMs=Date.now(),symbol
       duplicateCount++;
     }else map.set(candle.openTimeMs,candle);
   }
-  const requested=Array.isArray(symbols)?[...new Set(symbols.map(value=>String(value).toUpperCase()))]:[...bySymbol.keys()];
+  const hasExplicitUniverse=Array.isArray(symbols);
+  const requested=hasExplicitUniverse
+    ?[...new Set(symbols.map(value=>String(value).toUpperCase()))]
+    :[...bySymbol.keys()];
   const ranked=requested.filter(symbol=>bySymbol.has(symbol))
-    .map(symbol=>({symbol,count:bySymbol.get(symbol).size}))
-    .filter(row=>row.count>=STRATEGY_TOURNAMENT_POLICY.minimumAlignedBars)
-    .sort((a,b)=>b.count-a.count||a.symbol.localeCompare(b.symbol))
+    .map((symbol,priority)=>({symbol,count:bySymbol.get(symbol).size,priority}))
+    .filter(row=>row.count>=(hasExplicitUniverse
+      ?STRATEGY_TOURNAMENT_POLICY.minimumHistoryBarsForDynamicUniverse
+      :STRATEGY_TOURNAMENT_POLICY.minimumAlignedBars))
+    .sort((a,b)=>hasExplicitUniverse
+      ?a.priority-b.priority
+      :b.count-a.count||a.symbol.localeCompare(b.symbol))
     .slice(0,STRATEGY_TOURNAMENT_POLICY.maximumSymbols);
   const selectedSymbols=ranked.map(row=>row.symbol);
   if(selectedSymbols.length<STRATEGY_TOURNAMENT_POLICY.minimumSymbols){
@@ -392,7 +400,7 @@ function simulateFamily({strategyId,history,features,splitIndex,cost,initialCapi
   };
 }
 
-export function runStrategyFamilyTournament({rows,nowMs=Date.now(),symbols=null,
+export function runStrategyFamilyTournament({rows,nowMs=Date.now(),symbols=null,dynamicUniverse=null,
   initialCapitalUsdt=STRATEGY_TOURNAMENT_POLICY.initialCapitalUsdt}={}) {
   if(!Array.isArray(rows)||!Number.isSafeInteger(nowMs)||!positive(initialCapitalUsdt))fail("tournament_input_invalid");
   const history=normalizeStrategyTournamentHistory(rows,{nowMs,symbols});
@@ -432,6 +440,7 @@ export function runStrategyFamilyTournament({rows,nowMs=Date.now(),symbols=null,
       costCases:cases};
   });
   const eligible=gates.filter(row=>row.passedAllCostScenarios);
+  const coverageComplete=!dynamicUniverse||dynamicUniverse.coverageComplete===true;
   return {
     available:true,reportType:"TABDEAL_STRATEGY_FAMILY_TOURNAMENT",
     generatedAt:new Date(nowMs).toISOString(),
@@ -444,7 +453,18 @@ export function runStrategyFamilyTournament({rows,nowMs=Date.now(),symbols=null,
       splitIndex,oosBars:history.latestContiguousBars-splitIndex,
       split:"70% discovery/warmup, 30% fixed out-of-sample; parameters pre-registered"},
     policy:STRATEGY_TOURNAMENT_POLICY,costScenarios:STRATEGY_TOURNAMENT_COSTS,
-    results,gates,prospectivePaperCandidates:eligible.map(row=>row.strategyId),
+    results,gates,
+    universeCoverage:dynamicUniverse?{
+      source:dynamicUniverse.source||"dynamic_tabdeal_binance_spot_usdt",
+      status:dynamicUniverse.status||"unknown",
+      coverageComplete:dynamicUniverse.coverageComplete===true,
+      eligibleBeforeCap:Number(dynamicUniverse.eligibleBeforeCap)||0,
+      selectedMarketCount:Number(dynamicUniverse.selectedMarketCount)||0,
+      omittedBySafetyCap:Number(dynamicUniverse.omittedBySafetyCap)||0,
+      tournamentMinimumBars:STRATEGY_TOURNAMENT_POLICY.minimumHistoryBarsForDynamicUniverse
+    }:{source:"legacy_history_without_dynamic_universe_manifest",coverageComplete:true},
+    prospectivePaperCandidates:coverageComplete?eligible.map(row=>row.strategyId):[],
+    paperReviewBlockReason:coverageComplete?null:"dynamic_universe_coverage_incomplete",
     paperTradingEnabled:false,
     promotionRule:"A family is only eligible for a separately reviewed prospective Paper stage if every cost case passes all gates. This historical tournament never starts Paper or live trading.",
     limitations:[
