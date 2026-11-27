@@ -59,6 +59,8 @@ function validDepth(overrides = {}) {
 function validAccount(overrides = {}) {
   return {
     accountType: "SPOT",
+    makerCommission: 40,
+    takerCommission: 40,
     canTrade: true,
     permissions: ["SPOT"],
     balances: [{asset: "USDT", free: "1.00000000", freeze: "0"}],
@@ -73,7 +75,7 @@ function filledOrder() {
     price: "0",
     origQty: "0.00001111",
     executedQty: "0.00001111",
-    cummulativeQuoteQty: "1.00000000",
+    cummulativeQuoteQty: "0.99601593",
     status: "FILLED",
     type: "MARKET",
     side: "BUY",
@@ -161,7 +163,7 @@ test("sends one capped BTCUSDT quote-sized market buy after all preflight gates 
   assert.equal(params.get("symbol"), "BTCUSDT");
   assert.equal(params.get("side"), "BUY");
   assert.equal(params.get("type"), "MARKET");
-  assert.equal(params.get("quoteOrderQty"), ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(params.get("quoteOrderQty"), report.preflight.quoteOrderQty);
   assert.equal(params.get("newClientOrderId"), ONE_SHOT_CLIENT_ORDER_ID);
   assert.equal(params.has("quantity"), false);
   assert.equal(report.automaticRetry, false);
@@ -188,7 +190,9 @@ test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled"
   });
   assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.preflight.type, "LIMIT");
-  assert.ok(report.preflight.estimatedQuoteNotional <= 1);
+  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.quoteBudget);
+  assert.ok(report.preflight.quoteBudget < 1);
+  assert.equal(report.preflight.maxTotalDebitQuote, 1);
   const post = calls.find(call => call.method === "POST");
   assert.ok(post);
   const params = signedBodyParams(post);
@@ -196,7 +200,7 @@ test("uses a price-capped LIMIT order when quote-sized MARKET buys are disabled"
   assert.equal(params.has("quoteOrderQty"), false);
   assert.equal(params.get("price"), report.preflight.price);
   assert.equal(params.get("quantity"), report.preflight.quantity);
-  assert.ok(Number(params.get("price")) * Number(params.get("quantity")) <= 1);
+  assert.ok(Number(params.get("price")) * Number(params.get("quantity")) <= report.preflight.quoteBudget);
   assert.equal(params.get("timeInForce"), null);
 });
 
