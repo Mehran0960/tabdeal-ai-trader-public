@@ -1,0 +1,416 @@
+#!/usr/bin/env node
+import {createHmac} from "node:crypto";
+import {appendFile} from "node:fs/promises";
+import {pathToFileURL} from "node:url";
+
+const API_BASE = "https://api1.tabdeal.org";
+export const ONE_SHOT_SYMBOL = "BTCUSDT";
+export const ONE_SHOT_QUOTE_ASSET = "USDT";
+export const ONE_SHOT_QUOTE_AMOUNT = "1.00000000";
+export const ONE_SHOT_CLIENT_ID_PREFIX = "t1shot-";
+const MAX_SPREAD_BPS = 30;
+const MAX_BOOK_SLIPPAGE_BPS = 5;
+const RECV_WINDOW_MS = 5_000;
+const DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function positive(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function apiCode(data) {
+  return isRecord(data) && (typeof data.code === "number" || typeof data.code === "string")
+    ? data.code : null;
+}
+function clientOrderId(runId) {
+  const id = String(runId ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
+  if (!id) throw new Error("github_run_id_missing");
+  return ONE_SHOT_CLIENT_ID_PREFIX + id;
+}
+function signParams(params, secret) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) query.append(key, String(value));
+  }
+  const unsigned = query.toString();
+  const signature = createHmac("sha256", secret).update(unsigned, "utf8").digest("hex");
+  query.append("signature", signature);
+  return query;
+}
+async function responseJson(response) {
+  const text = await response.text();
+  if (text.length > 1_000_000) throw new Error("tabdeal_response_too_large");
+  try { return JSON.parse(text); } catch { throw new Error("tabdeal_response_not_json"); }
+}
+function findSymbolInfo(payload) {
+  const rows = Array.isArray(payload) ? payload
+    : isRecord(payload) && Array.isArray(payload.symbols) ? payload.symbols
+    : isRecord(payload) && isRecord(payload.symbol) ? [payload.symbol]
+    : null;
+  if (!rows) throw new Error("exchange_info_schema_invalid");
+  return rows.find(row => isRecord(row) && row.symbol === ONE_SHOT_SYMBOL) ?? null;
+}
+function filterOf(info, type) {
+  return Array.isArray(info?.filters)
+    ? info.filters.find(filter => isRecord(filter) && filter.filterType === type) ?? null
+    : null;
+}
+function levelsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(level => {
+    if (!Array.isArray(level) || level.length < 2) return null;
+    const price = positive(level[0]);
+    const quantity = positive(level[1]);
+    return price && quantity ? {price, quantity} : null;
+  }).filter(Boolean);
+}
+function normalizeOpenOrders(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (isRecord(payload) && Array.isArray(payload.orders)) return payload.orders;
+  throw new Error("open_orders_schema_invalid");
+}
+function getBalances(account) {
+  if (!Array.isArray(account?.balances)) throw new Error("account_balances_missing");
+  return account.balances;
+}
+function buildPreflight({symbolInfo, depth, account, openOrders}) {
+  if (!isRecord(symbolInfo) || symbolInfo.symbol !== ONE_SHOT_SYMBOL) {
+    throw new Error("btc_usdt_symbol_missing");
+  }
+  if (symbolInfo.status !== "TRADING" || symbolInfo.isSpotTradingAllowed !== true) {
+    throw new Error("btc_usdt_spot_not_trading");
+  }
+  if (symbolInfo.baseAsset !== "BTC" || symbolInfo.quoteAsset !== ONE_SHOT_QUOTE_ASSET) {
+    throw new Error("btc_usdt_asset_identity_mismatch");
+  }
+  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("MARKET")) {
+    throw new Error("market_order_type_not_allowed");
+  }
+  if (symbolInfo.quoteOrderQtyMarketAllowed !== true) {
+    throw new Error("quote_order_qty_market_not_allowed");
+  }
+  if (Array.isArray(symbolInfo.permissions) && !symbolInfo.permissions.includes("SPOT")) {
+    throw new Error("spot_permission_missing");
+  }
+  const minNotionalFilter = filterOf(symbolInfo, "MIN_NOTIONAL");
+  const minNotional = positive(minNotionalFilter?.minNotional);
+  if (!minNotional || minNotional > Number(ONE_SHOT_QUOTE_AMOUNT)) {
+    throw new Error("min_notional_exceeds_one_usdt_or_missing");
+  }
+  const marketLot = filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE");
+  const minQty = positive(marketLot?.minQty);
+  const maxQty = positive(marketLot?.maxQty);
+  if (!minQty) throw new Error("market_lot_size_filter_missing");
+
+  if (!isRecord(account) || account.accountType !== "SPOT" || account.canTrade !== true) {
+    throw new Error("spot_account_trade_permission_not_confirmed");
+  }
+  if (Array.isArray(account.permissions) && !account.permissions.includes("SPOT")) {
+    throw new Error("account_spot_permission_missing");
+  }
+  const usdt = getBalances(account).find(row => isRecord(row) && row.asset === ONE_SHOT_QUOTE_ASSET);
+  const freeUsdt = positive(usdt?.free) ?? 0;
+  if (freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
+    throw new Error("free_usdt_below_one");
+  }
+  if (!Array.isArray(openOrders) || openOrders.length !== 0) {
+    throw new Error("existing_btcusdt_open_orders_present");
+  }
+
+  const bids = levelsOf(depth?.bids);
+  const asks = levelsOf(depth?.asks);
+  if (!bids.length || !asks.length) throw new Error("order_book_schema_or_liquidity_invalid");
+  const bestBid = bids[0].price;
+  const bestAsk = asks[0].price;
+  if (bestAsk < bestBid) throw new Error("crossed_order_book");
+  const mid = (bestBid + bestAsk) / 2;
+  const spreadBps = ((bestAsk - bestBid) / mid) * 10_000;
+  if (!Number.isFinite(spreadBps) || spreadBps > MAX_SPREAD_BPS) {
+    throw new Error("spread_above_limit");
+  }
+  const maxPrice = bestAsk * (1 + MAX_BOOK_SLIPPAGE_BPS / 10_000);
+  let remainingQuote = Number(ONE_SHOT_QUOTE_AMOUNT);
+  let estimatedBase = 0;
+  let estimatedQuote = 0;
+  for (const level of asks) {
+    if (level.price > maxPrice) break;
+    const levelQuote = level.price * level.quantity;
+    const usedQuote = Math.min(remainingQuote, levelQuote);
+    estimatedBase += usedQuote / level.price;
+    estimatedQuote += usedQuote;
+    remainingQuote -= usedQuote;
+    if (remainingQuote <= 1e-10) break;
+  }
+  if (remainingQuote > 1e-8 || estimatedBase < minQty ||
+      (maxQty !== null && estimatedBase > maxQty)) {
+    throw new Error("visible_ask_depth_or_market_quantity_filter_failed");
+  }
+  return {
+    symbol: ONE_SHOT_SYMBOL,
+    side: "BUY",
+    type: "MARKET",
+    quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
+    maxQuoteNotional: Number(ONE_SHOT_QUOTE_AMOUNT),
+    freeUsdt,
+    minNotional,
+    bestBid,
+    bestAsk,
+    spreadBps,
+    projectedAveragePrice: estimatedQuote / estimatedBase,
+    projectedSlippageBps: ((estimatedQuote / estimatedBase) / bestAsk - 1) * 10_000,
+    estimatedBaseQuantity: estimatedBase,
+    marketOrderAllowed: true,
+    quoteOrderQtyMarketAllowed: true,
+    openOrdersBefore: openOrders.length
+  };
+}
+async function publicGet(path, fetchImpl) {
+  const response = await fetchImpl(API_BASE + "/r/api/v1" + path, {
+    method: "GET",
+    headers: {accept: "application/json"},
+    redirect: "error",
+    signal: AbortSignal.timeout(10_000)
+  });
+  if (!response.ok) throw new Error("public_get_http_" + response.status);
+  return responseJson(response);
+}
+function signedGetUrl(path, params, apiSecret) {
+  const query = signParams({...params, timestamp: Date.now(), recvWindow: RECV_WINDOW_MS}, apiSecret);
+  return API_BASE + "/r/api/v1" + path + "?" + query.toString();
+}
+async function signedGet(path, params, apiKey, apiSecret, fetchImpl) {
+  const response = await fetchImpl(signedGetUrl(path, params, apiSecret), {
+    method: "GET",
+    headers: {accept: "application/json", "X-MBX-APIKEY": apiKey},
+    redirect: "error",
+    signal: AbortSignal.timeout(10_000)
+  });
+  const data = await responseJson(response);
+  return {response, data};
+}
+function normalizedOrder(data, fallbackClientOrderId) {
+  if (!isRecord(data) || data.orderId === undefined || data.orderId === null) return null;
+  const fills = Array.isArray(data.fills) ? data.fills.map(fill => ({
+    price: fill?.price ?? null,
+    quantity: fill?.qty ?? null,
+    commission: fill?.commission ?? null,
+    commissionAsset: fill?.commissionAsset ?? null
+  })) : [];
+  return {
+    orderId: String(data.orderId),
+    clientOrderId: data.clientOrderId || fallbackClientOrderId,
+    symbol: data.symbol ?? ONE_SHOT_SYMBOL,
+    side: data.side ?? "BUY",
+    type: data.type ?? "MARKET",
+    status: data.status ?? "UNKNOWN",
+    originalQuantity: data.origQty ?? null,
+    executedQuantity: data.executedQty ?? null,
+    cumulativeQuoteQuantity: data.cummulativeQuoteQty ?? data.cumulativeQuoteQty ?? null,
+    fills
+  };
+}
+async function lookupByClientId({clientId, apiKey, apiSecret, fetchImpl}) {
+  const {response, data} = await signedGet("/order", {
+    symbol: ONE_SHOT_SYMBOL,
+    origClientOrderId: clientId
+  }, apiKey, apiSecret, fetchImpl);
+  if (response.status === 404 && isRecord(data) && Number(apiCode(data)) === 1204) return null;
+  if (!response.ok) throw new Error("order_lookup_unclassified_http_" + response.status);
+  const order = normalizedOrder(data, clientId);
+  if (!order) throw new Error("order_lookup_payload_invalid");
+  return order;
+}
+export async function runTabdealOneShotBuy({
+  apiKey = process.env.TABDEAL_API_KEY,
+  apiSecret = process.env.TABDEAL_API_SECRET,
+  confirm = process.env.TABDEAL_ONE_SHOT_CONFIRM === "true",
+  runId = process.env.GITHUB_RUN_ID,
+  fetchImpl = fetch
+} = {}) {
+  const base = {
+    checkedAt: new Date().toISOString(),
+    symbol: ONE_SHOT_SYMBOL,
+    quoteAsset: ONE_SHOT_QUOTE_ASSET,
+    quoteAmountCap: ONE_SHOT_QUOTE_AMOUNT,
+    side: "BUY",
+    orderType: "MARKET",
+    automaticRetry: false,
+    sellOrderSent: false,
+    cancellationSent: false,
+    withdrawalOrTransferSent: false
+  };
+  if (confirm !== true) return {...base, result: "explicit_workflow_confirmation_missing", orderSubmitted: false};
+  if (typeof apiKey !== "string" || !apiKey.trim() ||
+      typeof apiSecret !== "string" || !apiSecret.trim()) {
+    return {...base, result: "tabdeal_credentials_missing", orderSubmitted: false};
+  }
+  if (typeof fetchImpl !== "function") return {...base, result: "fetch_unavailable", orderSubmitted: false};
+  let clientId;
+  try { clientId = clientOrderId(runId); }
+  catch { return {...base, result: "workflow_run_id_missing", orderSubmitted: false}; }
+
+  let preflight;
+  try {
+    const [exchangeInfo, depth] = await Promise.all([
+      publicGet("/exchangeInfo?symbol=" + ONE_SHOT_SYMBOL, fetchImpl),
+      publicGet("/depth?symbol=" + ONE_SHOT_SYMBOL + "&limit=20", fetchImpl)
+    ]);
+    const info = findSymbolInfo(exchangeInfo);
+    const accountResult = await signedGet("/account", {}, apiKey, apiSecret, fetchImpl);
+    if (!accountResult.response.ok) throw new Error("account_read_http_" + accountResult.response.status);
+    const ordersResult = await signedGet("/openOrders", {symbol: ONE_SHOT_SYMBOL}, apiKey, apiSecret, fetchImpl);
+    if (!ordersResult.response.ok) throw new Error("open_orders_read_http_" + ordersResult.response.status);
+    const openOrders = normalizeOpenOrders(ordersResult.data);
+    preflight = buildPreflight({
+      symbolInfo: info,
+      depth,
+      account: accountResult.data,
+      openOrders
+    });
+  } catch (error) {
+    return {
+      ...base,
+      result: "preflight_blocked",
+      reason: String(error?.message || error).slice(0, 160),
+      orderSubmitted: false
+    };
+  }
+
+  try {
+    const priorOrder = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl});
+    if (priorOrder) {
+      return {...base, result: "existing_order_reconciled_no_resubmit", preflight, order: priorOrder, orderSubmitted: false};
+    }
+  } catch (error) {
+    return {...base, result: "pre_submit_order_lookup_failed_halt", reason: String(error?.message || error).slice(0, 160), preflight, orderSubmitted: false};
+  }
+
+  const params = {
+    symbol: ONE_SHOT_SYMBOL,
+    side: "BUY",
+    type: "MARKET",
+    quantity: undefined,
+    quoteOrderQty: ONE_SHOT_QUOTE_AMOUNT,
+    price: "0",
+    stopPrice: "0",
+    newClientOrderId: clientId,
+    timestamp: Date.now(),
+    recvWindow: RECV_WINDOW_MS
+  };
+  const signedBody = signParams(params, apiSecret).toString();
+  let postResponse;
+  let postData;
+  try {
+    postResponse = await fetchImpl(API_BASE + "/api/v1/order", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/x-www-form-urlencoded",
+        "X-MBX-APIKEY": apiKey
+      },
+      body: signedBody,
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000)
+    });
+    postData = await responseJson(postResponse);
+  } catch {
+    // POST may have reached the exchange. Reconcile by the unique client ID; never retry POST.
+    try {
+      const reconciled = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl});
+      if (reconciled) {
+        return {...base, result: "reconciled_after_uncertain_post", preflight, order: reconciled, orderSubmitted: true};
+      }
+    } catch {
+      // Keep outcome unknown. A human must reconcile before another buy.
+    }
+    return {...base, result: "post_outcome_unknown_halt_no_retry", preflight, orderSubmitted: "unknown", clientOrderId: clientId};
+  }
+
+  if (!postResponse.ok) {
+    return {
+      ...base,
+      result: "order_rejected_no_retry",
+      httpStatus: postResponse.status,
+      apiErrorCode: apiCode(postData),
+      apiMessage: typeof postData?.msg === "string" ? postData.msg.slice(0, 160) : null,
+      preflight,
+      orderSubmitted: false
+    };
+  }
+
+  let order = normalizedOrder(postData, clientId);
+  if (!order) {
+    try { order = await lookupByClientId({clientId, apiKey, apiSecret, fetchImpl}); }
+    catch {
+      return {...base, result: "accepted_response_unreconciled_halt", preflight, orderSubmitted: true, clientOrderId: clientId};
+    }
+  }
+  if (!order) {
+    return {...base, result: "accepted_but_order_not_reconciled_halt", preflight, orderSubmitted: true, clientOrderId: clientId};
+  }
+  return {
+    ...base,
+    result: "order_accepted_reconciled",
+    preflight,
+    order,
+    orderSubmitted: true
+  };
+}
+export function safeOneShotSummary(report) {
+  return {
+    checkedAt: report.checkedAt,
+    symbol: report.symbol,
+    quoteAmountCap: report.quoteAmountCap,
+    side: report.side,
+    orderType: report.orderType,
+    result: report.result,
+    reason: report.reason ?? null,
+    httpStatus: report.httpStatus ?? null,
+    apiErrorCode: report.apiErrorCode ?? null,
+    apiMessage: report.apiMessage ?? null,
+    preflight: report.preflight ?? null,
+    order: report.order ?? null,
+    clientOrderId: report.clientOrderId ?? null,
+    orderSubmitted: report.orderSubmitted,
+    automaticRetry: false,
+    sellOrderSent: false,
+    cancellationSent: false,
+    withdrawalOrTransferSent: false,
+    apiKeyLogged: false,
+    apiSecretLogged: false
+  };
+}
+async function main() {
+  const report = await runTabdealOneShotBuy();
+  const summary = safeOneShotSummary(report);
+  console.log("TABDEAL_ONE_SHOT_BUY_RESULT");
+  console.log(JSON.stringify(summary, null, 2));
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY,
+      "## Tabdeal one-shot Spot buy\n\n" +
+      "- Result: **" + report.result + "**\n" +
+      "- Symbol: " + ONE_SHOT_SYMBOL + "\n" +
+      "- Quote-amount cap: 1.00000000 USDT\n" +
+      "- Order submitted: " + String(report.orderSubmitted) + "\n" +
+      "- Automatic retry: no\n" +
+      "- Sell, cancel, withdrawal or transfer: not attempted\n" +
+      (report.order ? "- Exchange order ID: " + report.order.orderId + "\n" +
+        "- Order status: " + report.order.status + "\n" +
+        "- Filled base quantity: " + (report.order.executedQuantity ?? "not reported") + "\n" +
+        "- Quote quantity: " + (report.order.cumulativeQuoteQuantity ?? "not reported") + "\n" : "") +
+      (report.reason ? "- Block reason: " + report.reason + "\n" : "")
+    );
+  }
+  if (!report.orderSubmitted || report.orderSubmitted === "unknown" ||
+      !report.order || !["FILLED", "PARTIALLY_FILLED"].includes(String(report.order.status).toUpperCase())) {
+    process.exitCode = 1;
+  }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(error => {
+    console.error("TABDEAL_ONE_SHOT_BUY_FATAL: " + String(error?.message || error).slice(0, 160));
+    process.exitCode = 1;
+  });
+}
