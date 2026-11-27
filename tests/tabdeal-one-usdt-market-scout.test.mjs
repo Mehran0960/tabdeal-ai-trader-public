@@ -28,8 +28,8 @@ test("accepts a precise limit quantity whose rounded quote notional is exactly 1
 
 test("rejects BTC-style coarse quantity steps when the next valid lot would exceed 1 USDT",()=>{
   const result=sizeWithinOneUsdt(
-    market({stepSize:"0.00000100",minQty:"0.00000100"}),
-    depth({bid:"61417.3",ask:"61487.8",askQty:"1"})
+    market({stepSize:"0.00000100",minQty:"0.00000100",tickSize:"0.0100000000000000"}),
+    depth({bid:"61417.3",ask:"61457.08",askQty:"1"})
   );
   assert.equal(result.ok,false);
   assert.equal(result.reason,"min_notional_after_step_rounding");
