@@ -1,6 +1,11 @@
 name: Tabdeal BTC sell preflight (read-only)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/tabdeal-sell-preflight.trigger"
+      - ".github/workflows/tabdeal-btc-sell-preflight.yml"
   workflow_dispatch:
 
 permissions:
