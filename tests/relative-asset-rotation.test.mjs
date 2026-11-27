@@ -228,9 +228,9 @@ test("rotates a Paper position through a sell then a buy using independent local
     }}
   };
   const state={
-    schemaVersion:1,initialCapitalUsdt:100,cashBalance:0,
+    schemaVersion:1,initialCapitalUsdt:50,cashBalance:0,
     position:{symbol:"BTCUSDT",quantity:0.001,averageEntryPrice:50000,barsHeld:10},
-    peakEquityUsdt:100,lastEquityUsdt:99,maxDrawdownPct:1,
+    peakEquityUsdt:50,lastEquityUsdt:49.9,maxDrawdownPct:0.2,
     lastProcessedSignalOpenTimeMs:signalTime-6*INTERVAL,
     tradeCount:1,haltedByDrawdown:false,events:[]
   };
