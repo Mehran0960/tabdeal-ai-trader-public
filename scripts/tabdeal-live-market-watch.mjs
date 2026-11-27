@@ -98,6 +98,7 @@ async function main(){
   const stats={
     connectionsOpened:0,reconnects:0,subscriptionAcks:0,
     subscriptionAcceptedSymbols:0,subscriptionRejectedSymbols:0,subscriptionRejections:0,
+    subscriptionSetupIncomplete:false,
     receivedMessages:0,invalidMessages:0,ignoredMessages:0,
     eventLagSum:0,eventLagCount:0,maxAbsoluteEventLagMs:0,
     bySymbol:Object.fromEntries(symbols.map(symbol=>[symbol,{
@@ -171,7 +172,8 @@ async function main(){
     let nextId=1000;
     const queue=[...batches];
     let sent=0,accepted=0,rejectedSymbols=[];
-    while(queue.length&&!stopping&&ws===activeSocket&&ws.readyState===1){
+    const setupDeadlineMs=Date.now()+5*60_000;
+    while(queue.length&&!stopping&&ws===activeSocket&&ws.readyState===1&&Date.now()<setupDeadlineMs){
       const batch=queue.shift();
       const id=nextId++;
       const message={...batch.message,id};
@@ -213,6 +215,10 @@ async function main(){
         rejectedSymbols.push(...batch.symbols);
       }
       await sleep(250);
+    }
+    if(queue.length){
+      stats.subscriptionSetupIncomplete=true;
+      for(const batch of queue)rejectedSymbols.push(...batch.symbols);
     }
     stats.subscriptionAcceptedSymbols+=accepted;
     stats.subscriptionRejectedSymbols+=rejectedSymbols.length;
