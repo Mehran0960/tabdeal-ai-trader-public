@@ -262,7 +262,7 @@ test("rounds high-precision quantity up exactly and stays within the all-in 1.05
   assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
-test("handles high-precision venue tick and lot filters without floating-point rounding up", async () => {
+test("handles high-precision venue tick and lot filters using exact decimal arithmetic", async () => {
   const highPrecisionInfo = validLimitExchangeInfo();
   highPrecisionInfo[0].filters = [
     {filterType: "MIN_NOTIONAL", minNotional: "0.5", applyToMarket: false},
@@ -274,9 +274,9 @@ test("handles high-precision venue tick and lot filters without floating-point r
     postBody: {
       ...filledOrder(),
       price: "90045.0000000000000000",
-      origQty: "0.00001106000000000000",
-      executedQty: "0.00001106000000000000",
-      cummulativeQuoteQty: "0.99589770",
+      origQty: "0.0000111055583320",
+      executedQty: "0.0000111055583320",
+      cummulativeQuoteQty: "1.00000000",
       type: "LIMIT"
     }
   });
@@ -286,7 +286,9 @@ test("handles high-precision venue tick and lot filters without floating-point r
   });
   assert.equal(report.result, "order_filled_reconciled");
   assert.equal(report.preflight.type, "LIMIT");
-  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.quoteBudget);
+  assert.ok(report.preflight.estimatedQuoteNotional >= 1);
+  assert.ok(report.preflight.estimatedQuoteNotional <= report.preflight.maxQuoteNotional);
+  assert.ok(report.preflight.estimatedTotalDebitQuote <= 1.05);
   assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
