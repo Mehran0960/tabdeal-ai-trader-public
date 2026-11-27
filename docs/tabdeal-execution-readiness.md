@@ -62,3 +62,43 @@ At that snapshot, all five symbols had zero Paper-eligible entries, zero complet
 The collector has a one-minute Cloudflare Cron schedule and maintains up to 90 days of local candles. A GET-only public scout also confirmed DOGEUSDT as an active Spot market in one snapshot (22.16 bps spread, approximately 226.7k USDT top-five bid depth and 133.9k USDT top-five ask depth; newest trade about 3.2 seconds old). DOGEUSDT is added to the Paper observation watchlist only; it is not added to the live execution allowlist. The market scout returned 1,000 trades for all ten tested pairs, so each page was capped and is not a complete volume sample. The scout's quote-volume calculation has been corrected to use price × base quantity rather than raw quoteQty.
 
 The current candle history is only about 6–8 hours old, so it is too early to claim strategy profitability or stable out-of-sample performance. Accumulating more observations does not relax any entry gate.
+
+## Operational snapshot — 2026-11-27 12:20 UTC
+
+### Cloudflare Paper collector
+
+- Worker: `tabdeal-mvp-shadow`
+- Active version: `151b3fd9-54ee-4952-a3ae-14dc55893e59`
+- Active deployment: `1fdbdcde-8926-4281-a03b-6975b213ca2b` (100% traffic)
+- Cron: `* * * * *` (one-minute cadence)
+- D1 binding: the existing `DB` binding remains attached.
+- Paper observation watchlist: BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, PAXGUSDT, DOGEUSDT.
+- Live order placement remains disabled; the Worker uses public market endpoints and no exchange API secret is bound to it.
+
+### Forward Paper results from D1
+
+At this snapshot, 407 evaluations had been recorded across the six symbols:
+
+| Symbol | Evaluations | Buy candidates | Paper entries | 5m markouts | 15m markouts | 60m markouts |
+|---|---:|---:|---:|---:|---:|---:|
+| BTCUSDT | 186 | 0 | 0 | 0 | 0 | 0 |
+| DOGEUSDT | 5 | 0 | 0 | 0 | 0 | 0 |
+| ETHUSDT | 27 | 0 | 0 | 0 | 0 | 0 |
+| PAXGUSDT | 58 | 0 | 0 | 0 | 0 | 0 |
+| SOLUSDT | 82 | 0 | 0 | 0 | 0 | 0 |
+| XRPUSDT | 49 | 0 | 0 | 0 | 0 | 0 |
+
+DOGEUSDT had a 240-bar rolling candle window with 49 trades and 208 no-trade minutes. Its latest Paper evaluation remained `WAIT`: 8 trades in 60 minutes, 52 no-trade minutes (86.7%), and a 240-minute no-trade ratio of 86.7%. The configured local activity/coverage gate therefore rejected it. Its live execution allowlist was not changed.
+
+BTCUSDT also remained `WAIT`: the recent 15-minute trade count was below its gate, with bearish five-minute trend alignment and ATR percentage below the registered band. The other symbols remain subject to the same pre-registered data-quality, freshness and book-quality gates.
+
+**Interpretation:** the data collector and Paper evaluation loop are operational, but there are no qualified entries, no completed markouts, and no measured strategy return yet. This snapshot is not evidence of profitability and must not be presented as a successful trading result.
+
+### Recurring public-market scout
+
+The canonical read-only market scan is scheduled every six hours (`13 */6 * * *`) and retains its snapshot artifacts for seven days. Its latest run processed 10 preselected Spot pairs with 10 valid orderbooks and 10 parsed trade snapshots. All 10 recent-trade pages were capped at 1,000 rows and all newest-trade timestamps were older than 60 seconds; these snapshots are useful for screening, not complete trade history or current execution authorization.
+
+### User action currently required
+
+No new credential or repository change is needed for Paper operation. Do not paste API credentials into chat or enable withdrawal permissions. Before any live pilot, the remaining user-side step is to obtain confirmation from Tabdeal support that this specific key is permitted to submit Spot `POST /order` requests and to authorize a separate, tightly capped live pilot after the strategy and executor gates pass.
+
