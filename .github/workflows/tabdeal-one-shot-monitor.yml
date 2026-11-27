@@ -1,6 +1,10 @@
 name: Monitor the authorized Tabdeal one-shot BTCUSDT order (read only)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/tabdeal-one-shot-monitor.trigger"
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
