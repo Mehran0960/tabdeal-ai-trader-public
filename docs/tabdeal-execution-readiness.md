@@ -59,4 +59,6 @@ Observed on 2026-11-27 around 11:59 UTC, from the production D1 database:
 
 At that snapshot, all five symbols had zero Paper-eligible entries, zero completed markouts, and zero exchange orders. BTC data passed the local data-quality gate but did not produce a buy candidate. The other four symbols failed the registered activity/coverage gate.
 
-The collector has a one-minute Cloudflare Cron schedule and maintains up to 90 days of local candles. The current history is only about 6–8 hours old, so it is too early to claim strategy profitability or stable out-of-sample performance. Accumulating more observations does not relax any entry gate.
+The collector has a one-minute Cloudflare Cron schedule and maintains up to 90 days of local candles. A GET-only public scout also confirmed DOGEUSDT as an active Spot market in one snapshot (22.16 bps spread, approximately 226.7k USDT top-five bid depth and 133.9k USDT top-five ask depth; newest trade about 3.2 seconds old). DOGEUSDT is added to the Paper observation watchlist only; it is not added to the live execution allowlist. The market scout returned 1,000 trades for all ten tested pairs, so each page was capped and is not a complete volume sample. The scout's quote-volume calculation has been corrected to use price × base quantity rather than raw quoteQty.
+
+The current candle history is only about 6–8 hours old, so it is too early to claim strategy profitability or stable out-of-sample performance. Accumulating more observations does not relax any entry gate.

@@ -170,7 +170,9 @@ function summarizeTrades(rows, capturedAtMs, requestedTradeLimit = TABDEAL_PUBLI
     const id = safeTradeId(row.id);
     const price = decimalString(row.price);
     const quantity = decimalString(row.qty);
-    const quoteQuantity = decimalString(row.quoteQty);
+    // Tabdeal's sampled raw quoteQty values have been inconsistent.
+    // Derive quote notional from the execution price and base quantity instead.
+    const quoteQuantity = price && quantity ? multiplyPriceQuantity(price, quantity) : null;
     const timeMs = safePositiveInteger(row.time);
     if (!id || !price || !quantity || !quoteQuantity || !timeMs ||
         typeof row.isBuyerMaker !== "boolean") {
@@ -392,6 +394,7 @@ export async function runTabdealPublicMarketScout({
       marketDiscovery: "official spot exchangeInfo metadata; only actively trading spot permissions",
       orderbook: "single public depth snapshot; best levels sorted from all returned levels",
       trades: "single public recent-trades response with documented maximum 1000 records; no fromId pagination or historical cursor used",
+      quoteVolume: "derived from exact execution price × base quantity; raw quoteQty is ignored because sampled values were inconsistent",
       cappedTrades: "a 1000-record response is marked as possible truncation and is not complete trade history",
       uncappedTrades: "an uncapped recent response is a snapshot only; pagination completeness is not assumed",
       priceUnits: "IRT remains IRT_UNVERIFIED; USDT remains USDT; no conversion or cross-quote joins",

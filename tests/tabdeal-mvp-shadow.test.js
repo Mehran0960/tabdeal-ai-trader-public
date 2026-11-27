@@ -314,8 +314,8 @@ test("forward paper markout stays unresolved when no real trade occurs within th
 });
 
 
-test("multi-asset watchlist is limited to the reviewed Spot pilot",()=>{
-  assert.deepEqual(TABDEAL_PAPER_WATCHLIST,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","PAXGUSDT"]);
+test("multi-asset Paper watchlist includes DOGEUSDT as an observation candidate only",()=>{
+  assert.deepEqual(TABDEAL_PAPER_WATCHLIST,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","PAXGUSDT","DOGEUSDT"]);
 });
 
 test("multi-asset candle builders retain the requested Spot symbol",()=>{

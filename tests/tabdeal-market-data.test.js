@@ -64,10 +64,12 @@ test("collects public Tabdeal orderbook and recent-trade summaries without crede
   assert.equal(report.snapshots[0].orderbook.bestAsk,"101");
   assert.equal(report.snapshots[0].orderbook.bookUpdateId,"12345");
   assert.equal(report.snapshots[0].trades.tradeCount,2);
-  assert.equal(report.snapshots[0].trades.quoteVolume,"30.75");
-  assert.equal(report.snapshots[0].trades.takerBuyQuoteVolume,"10.25");
-  assert.equal(report.snapshots[0].trades.takerSellQuoteVolume,"20.5");
-  assert.equal(report.snapshots[0].trades.netTakerBuyQuoteVolume,"-10.25");
+  // Deliberately mismatched quoteQty fixtures prove we derive quote notional from price × qty.
+  assert.equal(report.snapshots[0].trades.quoteVolume,"30.2");
+  assert.equal(report.snapshots[0].trades.takerBuyQuoteVolume,"10");
+  assert.equal(report.snapshots[0].trades.takerSellQuoteVolume,"20.2");
+  assert.equal(report.snapshots[0].trades.netTakerBuyQuoteVolume,"-10.2");
+  assert.match(report.methodology.quoteVolume,/price × base quantity/);
   assert.equal(report.snapshots[0].trades.coverageStatus,"recent_unpaginated_snapshot_not_proven_complete");
   assert.equal(report.safety.apiKeyUsed,false);
   assert.equal(report.safety.liveTradingEnabled,false);
