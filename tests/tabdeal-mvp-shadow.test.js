@@ -48,7 +48,7 @@ function evaluate(krakenOhlc = krakenCandles(), exchangeInfo = markets(), book =
 
 test("produces a trend watch but never an order when local sources pass", () => {
   const report = evaluate();
-  assert.equal(report.data.status, "usable");
+  assert.equal(report.data.status, "usable", JSON.stringify(report.data));
   assert.equal(report.localMarket.status, "usable_snapshot");
   assert.equal(report.trend.state, "UP_TREND_WATCH");
   assert.equal(report.decision, "WAIT");
