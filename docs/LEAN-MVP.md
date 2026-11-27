@@ -11,12 +11,12 @@ The first operational lane is deliberately narrow:
 - Venue: **Tabdeal Spot only**.
 - Instrument: **BTCUSDT only** (USDT quote; no IRT conversion).
 - Decision timeframe: **closed 4h candles**.
-- Signal reference: **Binance Spot public 4h OHLCV only**.
+- Shadow trend context: **Kraken Spot XBT/USD closed 4h OHLC only** (USD reference; never an execution price). The offline/research history screen remains based on Binance Spot USDT candles collected by the public GitHub runner.
 - Execution confirmation: **fresh Tabdeal Spot REST order book and current Spot market metadata only**.
 - Order type for the first adapter: **LIMIT only**.
 - Default mode: **Paper / no order**. The live adapter is fail-closed and is not deployed or enabled by this PR.
 
-Kraken remains an optional data-integrity cross-check. It is not needed for the first MVP and must not block the bot. Nobitex UDF candles are archived/research-only for this lane until pair-level unit, freshness and gap checks are repeated. Do not use Tabdeal's single-page recent-trades endpoint as a candle or strategy source: a page at the 1,000-row cap is potentially truncated, and there is no documented cursor/sequence completeness contract.
+Kraken Spot `XBTUSD` is the current Shadow trend-context source because the Cloudflare Worker runtime returned HTTP 451 from `api.binance.com` and HTTP 403 from `data-api.binance.vision`; those Binance hosts are therefore excluded from the Worker runtime. Kraken's official OHLC API returns up to 720 entries and includes the current uncommitted candle; the Worker discards that candle, requires a fresh contiguous 4h series, and treats Kraken's quote as USD. EMA trend ratios are used only as context; the USD price is never compared with or substituted for Tabdeal's USDT price. Nobitex UDF candles remain archived/research-only until pair-level unit, freshness and gap checks are repeated. Do not use Tabdeal's single-page recent-trades endpoint as a candle or strategy source: a page at the 1,000-row cap is potentially truncated, and there is no documented cursor/sequence completeness contract.
 
 ## Research reduction
 
@@ -28,7 +28,8 @@ A recent 4h screen found no candidate that remained profitable in all three prov
 
 | Source / dataset | MVP treatment | Reason |
 |---|---|---|
-| Binance Spot BTCUSDT 4h OHLCV | Primary signal history | Public, no-key Spot candles; independent of Tabdeal's incomplete trade tape |
+| Kraken Spot XBTUSD 4h OHLC | Live Shadow trend context only | Public, no-key; current/open candle is excluded; USD is not converted to USDT |
+| Binance Spot BTCUSDT 4h OHLCV | Offline research/history only | The research dataset was captured by public GitHub Actions; direct Worker fetch returned 451/403 and is not used in the live Shadow runtime |
 | Tabdeal BTCUSDT Spot /depth | Required local execution check | Must be fetched fresh at decision/submit time; external prices are never executable quotes |
 | Tabdeal exchangeInfo | Required local market-rule check | Verify active Spot pair and filters before any Paper/live request |
 | Tabdeal /trades 1,000-row page | Excluded from signal history | Potential truncation; no documented completeness cursor |
@@ -37,11 +38,11 @@ A recent 4h screen found no candidate that remained profitable in all three prov
 | Kraken Spot | Optional cross-check only | Different quote currency (USD); not an executable Tabdeal price |
 | Telegram channels / paid feeds / CoinGecko / auxiliary feeds | Not in MVP | Not required for the first signal/execution path; rights, latency or incremental value are not established |
 
-If Binance retrieval is unavailable or the returned candle series is stale/gapped, output **WAIT**. Do not silently substitute a Kraken USD candle for a Binance USDT candle. If the Tabdeal book is stale, crossed, too wide or has insufficient depth, output **WAIT**. A missing source is a veto, not a reason to fabricate or blend prices.
+If Kraken retrieval is unavailable or the returned candle series is stale/gapped, output **WAIT**. Do not silently convert Kraken USD to USDT or treat it as a Tabdeal price. If the Tabdeal book is stale, crossed, too wide or has insufficient depth, output **WAIT**. A missing source is a veto, not a reason to fabricate or blend prices.
 
 ## Minimal operating flow
 
-1. Read closed Binance BTCUSDT 4h candles; validate time ordering, closure, duplicates and the latest contiguous segment.
+1. Read closed Kraken XBTUSD 4h candles; validate time ordering, closure, duplicates and the latest contiguous segment. Keep the data labelled USD and use only percentage-based trend context.
 2. Calculate the fixed EMA20/EMA50 trend rule already implemented in the shared research core. No parameter search.
 3. Fetch current Tabdeal BTCUSDT Spot exchangeInfo and /depth; verify quote asset, active Spot status, spread, depth, order filters and local timestamp.
 4. Apply the deterministic portfolio risk plan. Existing project defaults are 0.25% risk per trade, 20% maximum gross exposure, 2% daily-loss stop and 20% portfolio drawdown stop; no leverage or shorting.
@@ -59,6 +60,7 @@ It intentionally excludes market orders, futures, margin, withdrawal, deposit, t
 Live submission requires all of the following at runtime: explicit live flag, kill switch off, separate owner approval, portfolio risk checks passed, a positive max-notional cap and an approved risk plan matching the submitted quantity. Defaults make live submission impossible. Tests use fake credentials and mocked network responses; they do not call Tabdeal.
 
 Official interface references:
+- Kraken public Spot OHLC (4h, max 720 entries; last candle uncommitted): https://docs.kraken.com/api-reference/market-data/get-ohlc-data
 - https://github.com/Tabdeal-Exchange/tabdeal-python/blob/master/tabdeal/spot.py
 - https://github.com/Tabdeal-Exchange/tabdeal-python/blob/master/tabdeal/client.py
 - https://github.com/Tabdeal-Exchange/tabdeal-api-postman/blob/master/Tabdeal-API-Postman.postman_collection.json
