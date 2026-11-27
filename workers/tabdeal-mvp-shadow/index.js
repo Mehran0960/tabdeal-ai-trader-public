@@ -320,10 +320,403 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
   return report;
 }
 
+
+const TRADE_STREAM_SYMBOL = "BTCUSDT";
+const TRADE_STREAM_LIMIT = 1000;
+const TRADE_STREAM_MAX_AGE_MS = 180_000;
+const TRADE_STREAM_LEASE_MS = 45_000;
+const TRADE_STREAM_RETENTION_DAYS = 90;
+const TRADE_CANDLE_MS = 60_000;
+
+function tradeId(value) {
+  const text = String(value ?? "");
+  if (!/^\d{1,30}$/.test(text)) return null;
+  try { return BigInt(text) > 0n ? text : null; } catch { return null; }
+}
+function tradeDecimal(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+(?:\.\d{1,18})?$/.test(text)) return null;
+  const number = Number(text);
+  return Number.isFinite(number) && number > 0 ? text : null;
+}
+function tradeDecimalUnits(value) {
+  const text = String(value);
+  const [whole, fraction = ""] = text.split(".");
+  return BigInt(whole) * (10n ** 18n) + BigInt(fraction.padEnd(18, "0"));
+}
+function formatTradeDecimal(units) {
+  const base = 10n ** 18n;
+  const whole = units / base;
+  const fraction = (units % base).toString().padStart(18, "0").replace(/0+$/, "");
+  return fraction ? whole.toString() + "." + fraction : whole.toString();
+}
+function addTradeDecimals(left, right) {
+  return formatTradeDecimal(tradeDecimalUnits(left) + tradeDecimalUnits(right));
+}
+function compareTradeDecimals(left, right) {
+  const a = tradeDecimalUnits(left), b = tradeDecimalUnits(right);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+export function normalizeTabdealSpotTrades(payload, capturedAtMs = Date.now()) {
+  if (!Array.isArray(payload) || payload.length > TRADE_STREAM_LIMIT) {
+    throw new Error("tabdeal_trade_payload_invalid");
+  }
+  const rows = payload.map(row => {
+    if (!isRecord(row)) throw new Error("tabdeal_trade_record_invalid");
+    const id = tradeId(row.id);
+    const price = tradeDecimal(row.price);
+    const quantity = tradeDecimal(row.qty);
+    const quoteQuantity = tradeDecimal(row.quoteQty);
+    const timeMs = Number(row.time);
+    if (!id || !price || !quantity || !quoteQuantity ||
+        !Number.isSafeInteger(timeMs) || timeMs <= 0 ||
+        typeof row.isBuyerMaker !== "boolean" ||
+        timeMs > capturedAtMs + 30_000) {
+      throw new Error("tabdeal_trade_fields_invalid");
+    }
+    return {id, price, quantity, quoteQuantity, timeMs, isBuyerMaker: row.isBuyerMaker};
+  }).sort((a, b) => {
+    const left = BigInt(a.id), right = BigInt(b.id);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  const seen = new Set();
+  let previousTimeMs = 0;
+  for (const row of rows) {
+    if (seen.has(row.id)) throw new Error("tabdeal_trade_duplicate_id");
+    seen.add(row.id);
+    if (row.timeMs < previousTimeMs) throw new Error("tabdeal_trade_id_time_order_invalid");
+    previousTimeMs = row.timeMs;
+  }
+  return rows;
+}
+
+export function assessTabdealTradePageCoverage(rows, state, limit = TRADE_STREAM_LIMIT) {
+  if (!Array.isArray(rows)) throw new Error("tabdeal_trade_rows_invalid");
+  if (!state?.last_trade_id) return {status: "baseline_required", newTrades: rows};
+  if (!rows.length) return {status: "no_new_trades", newTrades: []};
+  const priorId = BigInt(state.last_trade_id);
+  const latestId = BigInt(rows.at(-1).id);
+  if (latestId < priorId) return {status: "trade_id_rewind", newTrades: []};
+  const lastSuccessfulPollAtMs = Number(state.last_successful_poll_at_ms);
+  if (rows.length === limit &&
+      Number.isSafeInteger(lastSuccessfulPollAtMs) &&
+      rows[0].timeMs >= lastSuccessfulPollAtMs) {
+    return {status: "possible_truncation", newTrades: []};
+  }
+  const newTrades = rows.filter(row => BigInt(row.id) > priorId);
+  const priorTradeTimeMs = Number(state.last_trade_time_ms || 0);
+  if (newTrades.some(row => row.timeMs < priorTradeTimeMs)) {
+    return {status: "trade_time_reversal", newTrades: []};
+  }
+  return {status: "complete", newTrades};
+}
+
+export function aggregateTabdealTradeCandles(rows, continuityEpoch = 0) {
+  if (!Array.isArray(rows)) throw new Error("tabdeal_trade_rows_invalid");
+  const sorted = [...rows].sort((a, b) => a.timeMs - b.timeMs ||
+    (BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0));
+  const byMinute = new Map();
+  for (const trade of sorted) {
+    const minuteOpenMs = Math.floor(trade.timeMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS;
+    let candle = byMinute.get(minuteOpenMs);
+    if (!candle) {
+      candle = {
+        symbol: TRADE_STREAM_SYMBOL, minute_open_ms: minuteOpenMs,
+        open_price: trade.price, high_price: trade.price, low_price: trade.price, close_price: trade.price,
+        base_volume: "0", quote_volume: "0", trade_count: 0,
+        first_trade_time_ms: trade.timeMs, last_trade_time_ms: trade.timeMs,
+        first_trade_id: trade.id, last_trade_id: trade.id,
+        continuity_epoch: continuityEpoch, coverage_status: "complete"
+      };
+      byMinute.set(minuteOpenMs, candle);
+    }
+    if (compareTradeDecimals(trade.price, candle.high_price) > 0) candle.high_price = trade.price;
+    if (compareTradeDecimals(trade.price, candle.low_price) < 0) candle.low_price = trade.price;
+    if (trade.timeMs < candle.first_trade_time_ms) {
+      candle.open_price = trade.price;
+      candle.first_trade_time_ms = trade.timeMs;
+      candle.first_trade_id = trade.id;
+    }
+    if (trade.timeMs > candle.last_trade_time_ms ||
+        (trade.timeMs === candle.last_trade_time_ms && BigInt(trade.id) > BigInt(candle.last_trade_id))) {
+      candle.close_price = trade.price;
+      candle.last_trade_time_ms = trade.timeMs;
+      candle.last_trade_id = trade.id;
+    }
+    candle.base_volume = addTradeDecimals(candle.base_volume, trade.quantity);
+    candle.quote_volume = addTradeDecimals(candle.quote_volume, trade.quoteQuantity);
+    candle.trade_count++;
+  }
+  return [...byMinute.values()].sort((a, b) => a.minute_open_ms - b.minute_open_ms);
+}
+
+export function mergeTabdealTradeCandle(existing, incoming) {
+  if (!existing) return {...incoming};
+  if (Number(existing.continuity_epoch) !== Number(incoming.continuity_epoch) ||
+      existing.coverage_status !== "complete") {
+    return {...incoming, coverage_status: "partial_after_gap"};
+  }
+  const merged = {...existing};
+  if (Number(incoming.first_trade_time_ms) < Number(existing.first_trade_time_ms)) {
+    merged.open_price = incoming.open_price;
+    merged.first_trade_time_ms = incoming.first_trade_time_ms;
+    merged.first_trade_id = incoming.first_trade_id;
+  }
+  if (compareTradeDecimals(incoming.high_price, existing.high_price) > 0) merged.high_price = incoming.high_price;
+  if (compareTradeDecimals(incoming.low_price, existing.low_price) < 0) merged.low_price = incoming.low_price;
+  if (Number(incoming.last_trade_time_ms) > Number(existing.last_trade_time_ms) ||
+      (Number(incoming.last_trade_time_ms) === Number(existing.last_trade_time_ms) &&
+       BigInt(incoming.last_trade_id) > BigInt(existing.last_trade_id))) {
+    merged.close_price = incoming.close_price;
+    merged.last_trade_time_ms = incoming.last_trade_time_ms;
+    merged.last_trade_id = incoming.last_trade_id;
+  }
+  merged.base_volume = addTradeDecimals(existing.base_volume, incoming.base_volume);
+  merged.quote_volume = addTradeDecimals(existing.quote_volume, incoming.quote_volume);
+  merged.trade_count = Number(existing.trade_count) + Number(incoming.trade_count);
+  return merged;
+}
+
+export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.now()) {
+  if (!state) {
+    return {status: "not_started", captureReady: false, fourHourHistoryReady: false,
+      consecutiveClosedMinutes: 0, requiredForCaptureReady: 60, requiredForFourHourHistory: 240};
+  }
+  const lastSuccessfulPollAtMs = Number(state.last_successful_poll_at_ms);
+  const lastTradeTimeMs = Number(state.last_trade_time_ms);
+  const pollAgeMs = Number.isFinite(lastSuccessfulPollAtMs) ? nowMs - lastSuccessfulPollAtMs : null;
+  const latestTradeAgeMs = Number.isFinite(lastTradeTimeMs) ? nowMs - lastTradeTimeMs : null;
+  const expectedMinute = Math.floor(nowMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS - TRADE_CANDLE_MS;
+  const rows = [...(Array.isArray(candleRows) ? candleRows : [])]
+    .sort((a, b) => Number(b.minute_open_ms) - Number(a.minute_open_ms));
+  let consecutiveClosedMinutes = 0;
+  let expected = expectedMinute;
+  for (const row of rows) {
+    if (Number(row.minute_open_ms) !== expected ||
+        Number(row.continuity_epoch) !== Number(state.continuity_epoch) ||
+        row.coverage_status !== "complete") break;
+    consecutiveClosedMinutes++;
+    expected -= TRADE_CANDLE_MS;
+  }
+  const statusGood = ["captured", "no_new_trades"].includes(state.last_poll_status);
+  const sourceFresh = pollAgeMs !== null && pollAgeMs >= 0 && pollAgeMs <= 120_000 &&
+    latestTradeAgeMs !== null && latestTradeAgeMs >= 0 && latestTradeAgeMs <= TRADE_STREAM_MAX_AGE_MS;
+  const captureReady = statusGood && sourceFresh && consecutiveClosedMinutes >= 60;
+  return {
+    status: captureReady ? "ready_for_extended_paper_validation"
+      : sourceFresh ? "collecting_or_history_incomplete" : "stale_or_gap_blocked",
+    symbol: TRADE_STREAM_SYMBOL, lastPollStatus: state.last_poll_status,
+    lastSuccessfulPollAt: Number.isFinite(lastSuccessfulPollAtMs) ? new Date(lastSuccessfulPollAtMs).toISOString() : null,
+    lastPollAgeMs: pollAgeMs,
+    latestTradeAt: Number.isFinite(lastTradeTimeMs) ? new Date(lastTradeTimeMs).toISOString() : null,
+    latestTradeAgeMs, gapCount: Number(state.gap_count || 0),
+    continuityEpoch: Number(state.continuity_epoch || 0), consecutiveClosedMinutes,
+    requiredForCaptureReady: 60, requiredForFourHourHistory: 240,
+    captureReady, fourHourHistoryReady: statusGood && sourceFresh && consecutiveClosedMinutes >= 240,
+    candleInterval: "1m", historicalBackfillAvailable: false, liveTradingEnabled: false
+  };
+}
+
+function nextCompleteTradeMinute(nowMs) {
+  return Math.floor(nowMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS + TRADE_CANDLE_MS;
+}
+
+async function saveTradeCaptureState(env, values, lockToken) {
+  await env.DB.prepare(
+    "UPDATE tabdeal_spot_trade_state SET last_successful_poll_at_ms=?, last_attempt_at_ms=?, last_trade_id=?, last_trade_time_ms=?, " +
+    "eligible_from_minute_ms=?, continuity_epoch=?, gap_count=?, last_gap_at_ms=?, " +
+    "last_poll_status=?, last_error_code=?, updated_at_ms=? WHERE symbol=? AND lease_token=?"
+  ).bind(
+    values.last_successful_poll_at_ms, values.last_attempt_at_ms, values.last_trade_id,
+    values.last_trade_time_ms, values.eligible_from_minute_ms, values.continuity_epoch,
+    values.gap_count, values.last_gap_at_ms, values.last_poll_status, values.last_error_code,
+    values.updated_at_ms, TRADE_STREAM_SYMBOL, lockToken
+  ).run();
+}
+
+export async function pollTabdealSpotTrades(env, {
+  fetchImpl = fetch, now = () => Date.now(), apiBase = TABDEAL_API
+} = {}) {
+  const startedAtMs = now();
+  const lockToken = crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO tabdeal_spot_trade_state " +
+    "(symbol,last_poll_status,continuity_epoch,gap_count,lease_until_ms,updated_at_ms) " +
+    "VALUES (?,'uninitialized',0,0,0,?)"
+  ).bind(TRADE_STREAM_SYMBOL, startedAtMs).run();
+  const lock = await env.DB.prepare(
+    "UPDATE tabdeal_spot_trade_state SET lease_token=?, lease_until_ms=?, last_attempt_at_ms=?, updated_at_ms=? " +
+    "WHERE symbol=? AND lease_until_ms < ?"
+  ).bind(lockToken, startedAtMs + TRADE_STREAM_LEASE_MS, startedAtMs, startedAtMs,
+    TRADE_STREAM_SYMBOL, startedAtMs).run();
+  if (Number(lock.meta?.changes || 0) !== 1) {
+    return {status: "skipped_lock_held", symbol: TRADE_STREAM_SYMBOL, ordersPlaced: 0};
+  }
+  try {
+    const url = new URL(apiBase.replace(/\/+$/, "") + "/trades");
+    url.searchParams.set("symbol", TRADE_STREAM_SYMBOL);
+    url.searchParams.set("limit", String(TRADE_STREAM_LIMIT));
+    const response = await fetchImpl(url, {
+      method: "GET", headers: {accept: "application/json"}, signal: AbortSignal.timeout(8_000)
+    });
+    if (!response.ok) throw new Error("tabdeal_trade_http_" + response.status);
+    const trades = normalizeTabdealSpotTrades(await response.json(), now());
+    const capturedAtMs = now();
+    const state = await env.DB.prepare(
+      "SELECT * FROM tabdeal_spot_trade_state WHERE symbol=?"
+    ).bind(TRADE_STREAM_SYMBOL).first();
+
+    if (!trades.length) {
+      const values = {
+        last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
+        last_trade_id: state.last_trade_id, last_trade_time_ms: state.last_trade_time_ms,
+        eligible_from_minute_ms: state.eligible_from_minute_ms ?? nextCompleteTradeMinute(capturedAtMs),
+        continuity_epoch: Number(state.continuity_epoch || 0), gap_count: Number(state.gap_count || 0),
+        last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "no_new_trades",
+        last_error_code: null, updated_at_ms: capturedAtMs
+      };
+      await saveTradeCaptureState(env, values, lockToken);
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+    }
+
+    const latest = trades.at(-1);
+    if (!state.last_trade_id) {
+      const values = {
+        last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
+        last_trade_id: latest.id, last_trade_time_ms: latest.timeMs,
+        eligible_from_minute_ms: nextCompleteTradeMinute(capturedAtMs),
+        continuity_epoch: Number(state.continuity_epoch || 0), gap_count: Number(state.gap_count || 0),
+        last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "baseline_started",
+        last_error_code: null, updated_at_ms: capturedAtMs
+      };
+      await saveTradeCaptureState(env, values, lockToken);
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+    }
+
+    const coverage = assessTabdealTradePageCoverage(trades, state);
+    if (["possible_truncation", "trade_id_rewind", "trade_time_reversal"].includes(coverage.status)) {
+      const values = {
+        last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
+        last_trade_id: latest.id, last_trade_time_ms: latest.timeMs,
+        eligible_from_minute_ms: nextCompleteTradeMinute(capturedAtMs),
+        continuity_epoch: Number(state.continuity_epoch || 0) + 1,
+        gap_count: Number(state.gap_count || 0) + 1, last_gap_at_ms: capturedAtMs,
+        last_poll_status: coverage.status, last_error_code: null, updated_at_ms: capturedAtMs
+      };
+      await saveTradeCaptureState(env, values, lockToken);
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+    }
+
+    const newTrades = coverage.newTrades;
+    if (!newTrades.length) {
+      const age = capturedAtMs - latest.timeMs;
+      const values = {
+        last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
+        last_trade_id: state.last_trade_id, last_trade_time_ms: state.last_trade_time_ms,
+        eligible_from_minute_ms: state.eligible_from_minute_ms,
+        continuity_epoch: Number(state.continuity_epoch || 0), gap_count: Number(state.gap_count || 0),
+        last_gap_at_ms: state.last_gap_at_ms,
+        last_poll_status: age > TRADE_STREAM_MAX_AGE_MS ? "stale_latest_trade" : "no_new_trades",
+        last_error_code: null, updated_at_ms: capturedAtMs
+      };
+      await saveTradeCaptureState(env, values, lockToken);
+      return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
+    }
+
+    const age = capturedAtMs - latest.timeMs;
+    const eligibleFrom = Number(state.eligible_from_minute_ms || nextCompleteTradeMinute(capturedAtMs));
+    const eligibleTrades = newTrades.filter(trade => trade.timeMs >= eligibleFrom);
+    const buckets = aggregateTabdealTradeCandles(eligibleTrades, Number(state.continuity_epoch || 0));
+    const statements = [];
+    for (const bucket of buckets) {
+      const existing = await env.DB.prepare(
+        "SELECT * FROM tabdeal_spot_candles_1m WHERE symbol=? AND minute_open_ms=?"
+      ).bind(TRADE_STREAM_SYMBOL, bucket.minute_open_ms).first();
+      const merged = mergeTabdealTradeCandle(existing, bucket);
+      const isClosed = bucket.minute_open_ms + TRADE_CANDLE_MS <= capturedAtMs;
+      statements.push(env.DB.prepare(
+        "INSERT OR REPLACE INTO tabdeal_spot_candles_1m " +
+        "(symbol,minute_open_ms,open_price,high_price,low_price,close_price,base_volume,quote_volume," +
+        "trade_count,first_trade_time_ms,last_trade_time_ms,first_trade_id,last_trade_id," +
+        "continuity_epoch,coverage_status,is_closed,updated_at_ms) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).bind(
+        TRADE_STREAM_SYMBOL, merged.minute_open_ms, merged.open_price, merged.high_price,
+        merged.low_price, merged.close_price, merged.base_volume, merged.quote_volume,
+        merged.trade_count, merged.first_trade_time_ms, merged.last_trade_time_ms,
+        merged.first_trade_id, merged.last_trade_id, merged.continuity_epoch,
+        merged.coverage_status, isClosed ? 1 : 0, capturedAtMs
+      ));
+    }
+    const latestAccepted = newTrades.at(-1);
+    const values = {
+      last_successful_poll_at_ms: capturedAtMs, last_attempt_at_ms: capturedAtMs,
+      last_trade_id: latestAccepted.id, last_trade_time_ms: latestAccepted.timeMs,
+      eligible_from_minute_ms: eligibleFrom, continuity_epoch: Number(state.continuity_epoch || 0),
+      gap_count: Number(state.gap_count || 0), last_gap_at_ms: state.last_gap_at_ms,
+      last_poll_status: age > TRADE_STREAM_MAX_AGE_MS ? "stale_latest_trade" : "captured",
+      last_error_code: null, updated_at_ms: capturedAtMs
+    };
+    statements.push(env.DB.prepare(
+      "UPDATE tabdeal_spot_trade_state SET last_successful_poll_at_ms=?, last_attempt_at_ms=?, " +
+      "last_trade_id=?, last_trade_time_ms=?, eligible_from_minute_ms=?, continuity_epoch=?, " +
+      "gap_count=?, last_gap_at_ms=?, last_poll_status=?, last_error_code=?, updated_at_ms=? " +
+      "WHERE symbol=? AND lease_token=?"
+    ).bind(
+      values.last_successful_poll_at_ms, values.last_attempt_at_ms, values.last_trade_id,
+      values.last_trade_time_ms, values.eligible_from_minute_ms, values.continuity_epoch,
+      values.gap_count, values.last_gap_at_ms, values.last_poll_status, values.last_error_code,
+      values.updated_at_ms, TRADE_STREAM_SYMBOL, lockToken
+    ));
+    await env.DB.batch(statements);
+
+    if (new Date(capturedAtMs).getUTCHours() === 3 && new Date(capturedAtMs).getUTCMinutes() === 0) {
+      await env.DB.prepare(
+        "DELETE FROM tabdeal_spot_candles_1m WHERE symbol=? AND minute_open_ms < ?"
+      ).bind(TRADE_STREAM_SYMBOL, capturedAtMs - TRADE_STREAM_RETENTION_DAYS * 86_400_000).run();
+    }
+    return {
+      status: values.last_poll_status, newTradeCount: newTrades.length,
+      eligibleTradeCount: eligibleTrades.length, barsUpdated: buckets.length, ordersPlaced: 0
+    };
+  } catch (error) {
+    const message = String(error?.message || "");
+    const code = /^[a-z0-9_]+$/.test(message) ? message : "tabdeal_trade_capture_failed";
+    await env.DB.prepare(
+      "UPDATE tabdeal_spot_trade_state SET last_attempt_at_ms=?, last_poll_status='fetch_error', " +
+      "last_error_code=?, updated_at_ms=? WHERE symbol=? AND lease_token=?"
+    ).bind(now(), code, now(), TRADE_STREAM_SYMBOL, lockToken).run();
+    return {status: "fetch_error", errorCode: code, ordersPlaced: 0};
+  } finally {
+    await env.DB.prepare(
+      "UPDATE tabdeal_spot_trade_state SET lease_token=NULL, lease_until_ms=0 WHERE symbol=? AND lease_token=?"
+    ).bind(TRADE_STREAM_SYMBOL, lockToken).run();
+  }
+}
+
+async function readTabdealTradeCaptureHealth(env, nowMs = Date.now()) {
+  const state = await env.DB.prepare(
+    "SELECT * FROM tabdeal_spot_trade_state WHERE symbol=?"
+  ).bind(TRADE_STREAM_SYMBOL).first();
+  const rows = await env.DB.prepare(
+    "SELECT minute_open_ms,continuity_epoch,coverage_status,trade_count FROM tabdeal_spot_candles_1m " +
+    "WHERE symbol=? AND is_closed=1 ORDER BY minute_open_ms DESC LIMIT 240"
+  ).bind(TRADE_STREAM_SYMBOL).all();
+  return buildTabdealTradeCaptureHealth(state, rows.results || [], nowMs);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method !== "GET") return json({error: "method_not_allowed"}, 405);
+    if (url.pathname === "/market-data/health") {
+      try {
+        return json({provider: "TABDEAL", market: "SPOT", ...await readTabdealTradeCaptureHealth(env)});
+      } catch {
+        return json({provider: "TABDEAL", market: "SPOT", status: "unavailable", captureReady: false}, 503);
+      }
+    }
     if (url.pathname === "/health") {
       const row = await env.DB.prepare(
         "SELECT report_json FROM shadow_scans ORDER BY captured_at DESC LIMIT 1"
@@ -332,15 +725,30 @@ export default {
         return json({status: "no_shadow_scan_yet", fresh: false}, 503);
       }
       const report = JSON.parse(row.report_json);
-      return json({...report, health: buildShadowHealth(report)});
+      let tradeCapture;
+      try {
+        tradeCapture = await readTabdealTradeCaptureHealth(env);
+      } catch {
+        tradeCapture = {status: "unavailable", captureReady: false, fourHourHistoryReady: false};
+      }
+      return json({...report, tradeCapture, health: buildShadowHealth(report)});
     }
     // Scans run only on the scheduled trigger. Do not expose a public endpoint
     // that lets arbitrary callers fan out requests to upstream exchange APIs.
     return json({error: "not_found"}, 404);
   },
-  async scheduled(_event, env) {
-    // Await the single scan so D1 failures are reflected in Cron event outcomes.
-    // Upstream source failures are already persisted as explicit WAIT reports.
-    await runScan(env);
+  async scheduled(event, env) {
+    // One lightweight public trade poll per minute builds exchange-local 1m candles.
+    // The existing 15m shadow scan reuses this same Worker and schedule.
+    const tasks = [pollTabdealSpotTrades(env)];
+    const scheduledAt = Number(event?.scheduledTime);
+    if (Number.isSafeInteger(scheduledAt) &&
+        new Date(scheduledAt).getUTCMinutes() % 15 === 0) {
+      tasks.push(runScan(env));
+    }
+    const outcomes = await Promise.allSettled(tasks);
+    if (outcomes.some(item => item.status === "rejected")) {
+      throw new Error("tabdeal_shadow_scheduled_task_failed");
+    }
   }
 };
