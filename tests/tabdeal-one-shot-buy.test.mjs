@@ -31,7 +31,7 @@ function validExchangeInfo(overrides = {}) {
     quoteOrderQtyMarketAllowed: true,
     permissions: ["SPOT"],
     filters: [
-      {filterType: "MIN_NOTIONAL", minNotional: "1", applyToMarket: true},
+      {filterType: "MIN_NOTIONAL", minNotional: "0.5", applyToMarket: true},
       {filterType: "MARKET_LOT_SIZE", minQty: "0.000001", maxQty: "100", stepSize: "0.000001"}
     ],
     ...overrides
@@ -214,6 +214,19 @@ test("blocks the LIMIT fallback when the venue minimum cannot fit under one USDT
   });
   assert.equal(report.result, "preflight_blocked");
   assert.equal(report.reason, "limit_notional_below_venue_minimum");
+  assert.equal(calls.filter(call => call.method === "POST").length, 0);
+});
+
+test("blocks if the account commission rates are unavailable", async () => {
+  const {fetchImpl, calls} = makeFetch({
+    account: validAccount({makerCommission: undefined, takerCommission: undefined})
+  });
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "preflight_blocked");
+  assert.equal(report.reason, "account_spot_commission_rate_unavailable");
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 
