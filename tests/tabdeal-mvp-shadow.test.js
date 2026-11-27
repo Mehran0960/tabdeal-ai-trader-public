@@ -109,6 +109,19 @@ test("blocks a wide spread or inadequate local depth", () => {
   assert.equal(report.executionGate, "BLOCKED_TABDEAL_LOCAL_BOOK");
 });
 
+test("requires minimum depth independently on both sides of the local book", () => {
+  const shallowAsk = depth();
+  shallowAsk.asks = shallowAsk.asks.map(([price]) => [price, "0.001"]);
+  const report = evaluate(krakenCandles(), markets(), shallowAsk);
+  assert.equal(report.localMarket.bidDepthPass, true);
+  assert.equal(report.localMarket.askDepthPass, false);
+  assert.equal(report.localMarket.depthPass, false);
+  assert.equal(report.localMarket.status, "liquidity_gate_failed");
+  assert.equal(report.executionGate, "BLOCKED_TABDEAL_LOCAL_BOOK");
+  assert.equal(report.decision, "WAIT");
+  assert.equal(report.ordersCreated, 0);
+});
+
 test("does not generate a buy signal even when the trend is up and market is usable", () => {
   const report = evaluate();
   assert.equal(report.trend.state, "UP_TREND_WATCH");
