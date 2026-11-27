@@ -38,7 +38,7 @@ jobs:
         env:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
-          TABDEAL_ONE_SHOT_CONFIRM: ${{ inputs.confirm_one_shot_buy }}
+          TABDEAL_ONE_SHOT_CONFIRM: ${{ github.event_name == 'push' || inputs.confirm_one_shot_buy == true }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/tabdeal-one-shot-buy.mjs
