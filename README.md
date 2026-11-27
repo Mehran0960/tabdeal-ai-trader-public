@@ -54,6 +54,16 @@ npm run sentiment:collect
 
 The market scan writes a timestamped JSON file beneath `artifacts/tabdeal-market-data/`. The signal scan writes `artifacts/tabdeal-signal-events/latest.json`. The Shadow Worker stores only one-minute OHLCV aggregates in D1 and reports capture continuity at `/market-data/health`; the first poll establishes a baseline, and at least 240 consecutive closed minutes are required for a local 4h candle window. The scheduled signal workflow stores prospective, deduplicated observations in the separate `signal-history` branch. The Spot depth sampler listens to the official 2-second order-book stream for one minute per run and stores only aggregate microstructure summaries; it does not retain raw messages.
 
+## Local Tabdeal indicators and forward-paper signal validation
+
+The one-minute trade-candle stream now feeds a separate, explicitly exploratory BTCUSDT Spot signal monitor. On each new closed minute it validates a continuous 240-bar local window, calculates 1m EMA(9/21/50), Wilder RSI(14), ATR(14), MACD(12/26/9), and aligned 5m EMA(12/26), then records a pre-registered long-only signal or WAIT. Explicit `no_trade` bars remain in the time series with zero volume; missing or mixed-epoch bars block the evaluation.
+
+A `BUY_CANDIDATE` is eligible for a forward-paper observation only if a contemporaneous public Tabdeal Spot order book also passes the existing conservative spread (≤30 bps) and two-sided depth (≥1,000 USDT per side within 0.25%) gates. The reference paper size is 50 USDT, not user capital. Each eligible signal is marked out at 5, 15 and 60 minutes. Exit costs include the entry spread proxy and a 5 bps latency buffer; round-trip commission sensitivity is reported at 10, 20 and 40 bps per side because the user's actual fee tier has not yet been verified.
+
+This is **fixed-horizon forward signal validation**, not a full stop/target position simulator and not the historical 4h strategy. It is deliberately separated from the existing historical OOS/FDR promotion gate. It does not read private account data, use API credentials, submit orders, move funds, or enable live trading. A positive short sample cannot qualify a strategy; the 1m experiment must build a sufficiently large prospective sample and then undergo separate holdout, costs, drawdown and risk validation.
+
+The Worker exposes the recorded monitor at `/market-data/local-paper`. Records are deduplicated by symbol, strategy version and closed candle time and retained for 30 days.
+
 ## Research and execution gates
 
 Do not treat a strategy as eligible for real-money use until it has:
