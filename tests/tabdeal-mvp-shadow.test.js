@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   evaluateTabdealMvpShadow, buildShadowHealth, runTabdealLocalPaperCapture,
-  updateTabdealLocalPaperMarkouts
+  updateTabdealLocalPaperMarkouts, aggregateTabdealTradeCandles,
+  buildTabdealRecentTradeCandles, TABDEAL_PAPER_WATCHLIST,
+  pollTabdealSpotTrades
 } from "../workers/tabdeal-mvp-shadow/index.js";
 
 const interval = 4 * 60 * 60 * 1000;
@@ -309,4 +311,118 @@ test("forward paper markout stays unresolved when no real trade occurs within th
   ],base+600_000);
   assert.equal(result.resolvedMarkouts,0);
   assert.equal(writes.length,1);
+});
+
+
+test("multi-asset watchlist is limited to the reviewed Spot pilot",()=>{
+  assert.deepEqual(TABDEAL_PAPER_WATCHLIST,["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT"]);
+});
+
+test("multi-asset candle builders retain the requested Spot symbol",()=>{
+  const capturedAt=Date.parse("2026-11-27T12:00:00.000Z");
+  const priorTime=capturedAt-241*60_000;
+  const rows=[
+    {id:"1",price:"100",quantity:"1",quoteQuantity:"100",timeMs:priorTime,isBuyerMaker:false},
+    {id:"2",price:"101",quantity:"2",quoteQuantity:"202",timeMs:capturedAt-60_000,isBuyerMaker:true}
+  ];
+  const aggregated=aggregateTabdealTradeCandles(rows,0,"ETHUSDT");
+  assert.equal(aggregated[0].symbol,"ETHUSDT");
+  const backfill=buildTabdealRecentTradeCandles(rows,capturedAt,240,0,"ETHUSDT");
+  assert.equal(backfill.status,"complete");
+  assert.equal(backfill.candles.length,240);
+  assert.ok(backfill.candles.every(candle=>candle.symbol==="ETHUSDT"));
+});
+
+test("paper markouts query and persist only the requested symbol",async()=>{
+  const base=1_800_000_000_000;
+  const writes=[];
+  const db={
+    prepare(sql){
+      const statement={
+        bind(...params){writes.push({sql,params});return statement;},
+        async all(){return {results:[{
+          symbol:"ETHUSDT",strategy_version:"ema9-21-50-macd-v1",
+          candle_open_ms:base,entry_price:100,entry_spread_bps:10,
+          entry_observed_at_ms:base+90_000
+        }]};}
+      };
+      return statement;
+    },
+    async batch(items){writes.push(...items);return [];}
+  };
+  const result=await updateTabdealLocalPaperMarkouts({DB:db},[
+    {minuteOpenMs:base+360_000,close:102,coverageStatus:"complete",tradeCount:1}
+  ],base+500_000,"ETHUSDT");
+  assert.equal(result.resolvedMarkouts,1);
+  const query=writes.find(row=>row.sql?.includes("SELECT symbol,strategy_version,candle_open_ms"));
+  assert.ok(query.sql.includes("WHERE symbol=? AND paper_eligible=1"));
+  assert.equal(query.params[0],"ETHUSDT");
+});
+
+test("paper capture records the requested symbol independently",async()=>{
+  const start=Date.parse("2026-11-27T00:00:00.000Z");
+  const rows=[];
+  let prior=1_700;
+  for(let i=0;i<240;i++){
+    const close=prior+0.5;
+    rows.push({minute_open_ms:start+i*60_000,open_price:String(prior),
+      high_price:String(close+1),low_price:String(prior-1),close_price:String(close),
+      quote_volume:"100",trade_count:1,continuity_epoch:0,
+      coverage_status:"complete",is_closed:1});
+    prior=close;
+  }
+  const nowMs=start+240*60_000+5_000;
+  const state={last_successful_poll_at_ms:nowMs-5_000,last_trade_time_ms:nowMs-5_000,
+    continuity_epoch:0,last_poll_status:"captured"};
+  const writes=[];
+  const db={prepare(sql){let params=[];const q={
+    bind(...values){params=values;return q;},
+    async first(){
+      if(sql.includes("SELECT last_successful_poll_at_ms"))return state;
+      if(sql.includes("SELECT candle_open_ms FROM tabdeal_local_paper_signals"))return null;
+      if(sql.includes("SELECT COUNT(*) AS evaluation_count"))return {
+        evaluation_count:1,buy_candidate_count:0,paper_entry_count:0,
+        completed_60m_count:0,avg_60m_net_bps_fee10:null,
+        avg_60m_net_bps_fee20:null,avg_60m_net_bps_fee40:null};
+      throw new Error("unexpected_first_query");
+    },
+    async all(){
+      if(sql.includes("SELECT minute_open_ms,open_price"))return {results:[...rows].reverse()};
+      if(sql.includes("SELECT symbol,strategy_version,candle_open_ms,entry_price"))return {results:[]};
+      throw new Error("unexpected_all_query");
+    },
+    async run(){writes.push({sql,params});return {meta:{changes:1}};}
+  };return q;},async batch(){throw new Error("unexpected_batch");}};
+  const result=await runTabdealLocalPaperCapture({DB:db},{nowMs,symbol:"ETHUSDT"});
+  assert.equal(result.symbol,"ETHUSDT");
+  const insert=writes.find(row=>row.sql.startsWith("INSERT OR IGNORE INTO tabdeal_local_paper_signals"));
+  assert.ok(insert);
+  assert.equal(insert.params[0],"ETHUSDT");
+});
+
+
+test("no-new-trades polling updates only the selected symbol state",async()=>{
+  const now=Date.parse("2026-11-27T12:00:00.000Z");
+  const state={last_trade_id:"123",last_trade_time_ms:now-30_000,
+    eligible_from_minute_ms:now-60_000,continuity_epoch:0,gap_count:0,
+    last_successful_poll_at_ms:now-60_000,last_gap_at_ms:null};
+  const writes=[];
+  const db={prepare(sql){let params=[];const q={
+    bind(...values){params=values;return q;},
+    async first(){if(sql.includes("SELECT * FROM tabdeal_spot_trade_state"))return state;return null;},
+    async run(){
+      writes.push({sql,params});
+      if(sql.includes("SET lease_token=?"))return {meta:{changes:1}};
+      return {meta:{changes:1}};
+    },
+    async all(){return {results:[]};}
+  };return q;},async batch(){return [];}};
+  const result=await pollTabdealSpotTrades({DB:db},{
+    symbol:"ETHUSDT",now:()=>now,
+    fetchImpl:async()=>({ok:true,json:async()=>[]})
+  });
+  assert.equal(result.status,"no_new_trades");
+  const stateWrite=writes.find(row=>row.sql.includes("SET last_successful_poll_at_ms"));
+  assert.ok(stateWrite);
+  assert.equal(stateWrite.params.at(-2),"ETHUSDT");
 });

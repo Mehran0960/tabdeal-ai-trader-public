@@ -332,6 +332,7 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
 
 
 const TRADE_STREAM_SYMBOL = "BTCUSDT";
+export const TABDEAL_PAPER_WATCHLIST = Object.freeze(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
 const TRADE_STREAM_LIMIT = 1000;
 const TRADE_STREAM_MAX_AGE_MS = 180_000;
 const TRADE_STREAM_LEASE_MS = 45_000;
@@ -429,7 +430,7 @@ export function assessTabdealTradePageCoverage(rows, state, limit = TRADE_STREAM
   return {status: "complete", newTrades};
 }
 
-export function aggregateTabdealTradeCandles(rows, continuityEpoch = 0) {
+export function aggregateTabdealTradeCandles(rows, continuityEpoch = 0, symbol = TRADE_STREAM_SYMBOL) {
   if (!Array.isArray(rows)) throw new Error("tabdeal_trade_rows_invalid");
   const sorted = [...rows].sort((a, b) => a.timeMs - b.timeMs ||
     (BigInt(a.id) < BigInt(b.id) ? -1 : BigInt(a.id) > BigInt(b.id) ? 1 : 0));
@@ -439,7 +440,7 @@ export function aggregateTabdealTradeCandles(rows, continuityEpoch = 0) {
     let candle = byMinute.get(minuteOpenMs);
     if (!candle) {
       candle = {
-        symbol: TRADE_STREAM_SYMBOL, minute_open_ms: minuteOpenMs,
+        symbol, minute_open_ms: minuteOpenMs,
         open_price: trade.price, high_price: trade.price, low_price: trade.price, close_price: trade.price,
         base_volume: "0", quote_volume: "0", trade_count: 0,
         first_trade_time_ms: trade.timeMs, last_trade_time_ms: trade.timeMs,
@@ -469,7 +470,7 @@ export function aggregateTabdealTradeCandles(rows, continuityEpoch = 0) {
 }
 
 
-export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowMinutes = 240, continuityEpoch = 0) {
+export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowMinutes = 240, continuityEpoch = 0, symbol = TRADE_STREAM_SYMBOL) {
   if (!Array.isArray(rows) || ![60, 240].includes(windowMinutes)) {
     throw new Error("tabdeal_recent_backfill_input_invalid");
   }
@@ -492,7 +493,7 @@ export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowM
   }
 
   const inWindow = sorted.filter(row => row.timeMs >= startMinuteMs && row.timeMs < endMinuteMs);
-  const actual = aggregateTabdealTradeCandles(inWindow, continuityEpoch);
+  const actual = aggregateTabdealTradeCandles(inWindow, continuityEpoch, symbol);
   const byMinute = new Map(actual.map(candle => [candle.minute_open_ms, candle]));
   const candles = [];
   let carryPrice = priorTrade.price;
@@ -505,7 +506,7 @@ export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowM
       carryPrice = candle.close_price;
     } else {
       candles.push({
-        symbol: TRADE_STREAM_SYMBOL,
+        symbol,
         minute_open_ms: minuteOpenMs,
         open_price: carryPrice,
         high_price: carryPrice,
@@ -536,17 +537,17 @@ export function buildTabdealRecentTradeCandles(rows, nowMs = Date.now(), windowM
   };
 }
 
-async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, continuityEpoch, lockToken, state) {
-  const fullWindow = buildTabdealRecentTradeCandles(rows, capturedAtMs, 240, continuityEpoch);
+async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, continuityEpoch, lockToken, state, symbol = TRADE_STREAM_SYMBOL) {
+  const fullWindow = buildTabdealRecentTradeCandles(rows, capturedAtMs, 240, continuityEpoch, symbol);
   const backfill = fullWindow.status === "complete"
     ? fullWindow
-    : buildTabdealRecentTradeCandles(rows, capturedAtMs, 60, continuityEpoch);
+    : buildTabdealRecentTradeCandles(rows, capturedAtMs, 60, continuityEpoch, symbol);
   if (backfill.status !== "complete") return 0;
 
   const existingRows = await env.DB.prepare(
     "SELECT minute_open_ms,continuity_epoch,coverage_status FROM tabdeal_spot_candles_1m " +
     "WHERE symbol=? AND minute_open_ms>=? AND minute_open_ms<?"
-  ).bind(TRADE_STREAM_SYMBOL, backfill.windowStartMs, backfill.windowEndMs).all();
+  ).bind(symbol, backfill.windowStartMs, backfill.windowEndMs).all();
   const existingByMinute = new Map((existingRows.results || [])
     .map(row => [Number(row.minute_open_ms), row]));
   const newEpoch = state.recent_backfill_epoch === null ||
@@ -568,7 +569,7 @@ async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, contin
       "continuity_epoch,coverage_status,is_closed,updated_at_ms) " +
       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
     ).bind(
-      TRADE_STREAM_SYMBOL, candle.minute_open_ms, candle.open_price, candle.high_price,
+      symbol, candle.minute_open_ms, candle.open_price, candle.high_price,
       candle.low_price, candle.close_price, candle.base_volume, candle.quote_volume,
       candle.trade_count, candle.first_trade_time_ms, candle.last_trade_time_ms,
       candle.first_trade_id, candle.last_trade_id, candle.continuity_epoch,
@@ -585,7 +586,7 @@ async function persistTabdealRecentTradeBackfill(env, rows, capturedAtMs, contin
     await env.DB.prepare(
       "UPDATE tabdeal_spot_trade_state SET recent_backfill_epoch=?, updated_at_ms=? " +
       "WHERE symbol=? AND lease_token=?"
-    ).bind(continuityEpoch, capturedAtMs, TRADE_STREAM_SYMBOL, lockToken).run();
+    ).bind(continuityEpoch, capturedAtMs, symbol, lockToken).run();
     state.recent_backfill_epoch = continuityEpoch;
   }
   return statements.length;
@@ -618,7 +619,7 @@ export function mergeTabdealTradeCandle(existing, incoming) {
   return merged;
 }
 
-export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.now()) {
+export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.now(), symbol = TRADE_STREAM_SYMBOL) {
   if (!state) {
     return {status: "not_started", captureReady: false, fourHourHistoryReady: false,
       consecutiveClosedMinutes: 0, requiredForCaptureReady: 60, requiredForFourHourHistory: 240};
@@ -647,7 +648,7 @@ export function buildTabdealTradeCaptureHealth(state, candleRows, nowMs = Date.n
   return {
     status: captureReady ? "ready_for_extended_paper_validation"
       : sourceFresh ? "collecting_or_history_incomplete" : "stale_or_gap_blocked",
-    symbol: TRADE_STREAM_SYMBOL, lastPollStatus: state.last_poll_status,
+    symbol, lastPollStatus: state.last_poll_status,
     lastSuccessfulPollAt: Number.isFinite(lastSuccessfulPollAtMs) ? new Date(lastSuccessfulPollAtMs).toISOString() : null,
     lastPollAgeMs: pollAgeMs,
     latestTradeAt: Number.isFinite(lastTradeTimeMs) ? new Date(lastTradeTimeMs).toISOString() : null,
@@ -667,7 +668,7 @@ function nextCompleteTradeMinute(nowMs) {
   return Math.floor(nowMs / TRADE_CANDLE_MS) * TRADE_CANDLE_MS + TRADE_CANDLE_MS;
 }
 
-async function saveTradeCaptureState(env, values, lockToken) {
+async function saveTradeCaptureState(env, values, lockToken, symbol = TRADE_STREAM_SYMBOL) {
   await env.DB.prepare(
     "UPDATE tabdeal_spot_trade_state SET last_successful_poll_at_ms=?, last_attempt_at_ms=?, last_trade_id=?, last_trade_time_ms=?, " +
     "eligible_from_minute_ms=?, continuity_epoch=?, gap_count=?, last_gap_at_ms=?, " +
@@ -676,31 +677,35 @@ async function saveTradeCaptureState(env, values, lockToken) {
     values.last_successful_poll_at_ms, values.last_attempt_at_ms, values.last_trade_id,
     values.last_trade_time_ms, values.eligible_from_minute_ms, values.continuity_epoch,
     values.gap_count, values.last_gap_at_ms, values.last_poll_status, values.last_error_code,
-    values.updated_at_ms, TRADE_STREAM_SYMBOL, lockToken
+    values.updated_at_ms, symbol, lockToken
   ).run();
 }
 
 export async function pollTabdealSpotTrades(env, {
-  fetchImpl = fetch, now = () => Date.now(), apiBase = TABDEAL_API
+  symbol = TRADE_STREAM_SYMBOL, fetchImpl = fetch, now = () => Date.now(), apiBase = TABDEAL_API
 } = {}) {
+  symbol = String(symbol).trim().toUpperCase();
+  if (!TABDEAL_PAPER_WATCHLIST.includes(symbol)) {
+    return {status: "symbol_not_allowlisted", symbol, ordersPlaced: 0};
+  }
   const startedAtMs = now();
   const lockToken = crypto.randomUUID();
   await env.DB.prepare(
     "INSERT OR IGNORE INTO tabdeal_spot_trade_state " +
     "(symbol,last_poll_status,continuity_epoch,gap_count,lease_until_ms,updated_at_ms) " +
     "VALUES (?,'uninitialized',0,0,0,?)"
-  ).bind(TRADE_STREAM_SYMBOL, startedAtMs).run();
+  ).bind(symbol, startedAtMs).run();
   const lock = await env.DB.prepare(
     "UPDATE tabdeal_spot_trade_state SET lease_token=?, lease_until_ms=?, last_attempt_at_ms=?, updated_at_ms=? " +
     "WHERE symbol=? AND lease_until_ms < ?"
   ).bind(lockToken, startedAtMs + TRADE_STREAM_LEASE_MS, startedAtMs, startedAtMs,
-    TRADE_STREAM_SYMBOL, startedAtMs).run();
+    symbol, startedAtMs).run();
   if (Number(lock.meta?.changes || 0) !== 1) {
-    return {status: "skipped_lock_held", symbol: TRADE_STREAM_SYMBOL, ordersPlaced: 0};
+    return {status: "skipped_lock_held", symbol: symbol, ordersPlaced: 0};
   }
   try {
     const url = new URL(apiBase.replace(/\/+$/, "") + "/trades");
-    url.searchParams.set("symbol", TRADE_STREAM_SYMBOL);
+    url.searchParams.set("symbol", symbol);
     url.searchParams.set("limit", String(TRADE_STREAM_LIMIT));
     const response = await fetchImpl(url, {
       method: "GET", headers: {accept: "application/json"}, signal: AbortSignal.timeout(8_000)
@@ -710,7 +715,7 @@ export async function pollTabdealSpotTrades(env, {
     const capturedAtMs = now();
     const state = await env.DB.prepare(
       "SELECT * FROM tabdeal_spot_trade_state WHERE symbol=?"
-    ).bind(TRADE_STREAM_SYMBOL).first();
+    ).bind(symbol).first();
 
     if (!trades.length) {
       const values = {
@@ -721,7 +726,7 @@ export async function pollTabdealSpotTrades(env, {
         last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "no_new_trades",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: 0, ordersPlaced: 0};
     }
 
@@ -735,9 +740,9 @@ export async function pollTabdealSpotTrades(env, {
         last_gap_at_ms: state.last_gap_at_ms, last_poll_status: "baseline_started",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       const backfilledBars = await persistTabdealRecentTradeBackfill(
-        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
       );
       return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: backfilledBars, recentBackfillBars: backfilledBars, ordersPlaced: 0};
     }
@@ -752,9 +757,9 @@ export async function pollTabdealSpotTrades(env, {
         gap_count: Number(state.gap_count || 0) + 1, last_gap_at_ms: capturedAtMs,
         last_poll_status: coverage.status, last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       const backfilledBars = await persistTabdealRecentTradeBackfill(
-        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
       );
       return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: backfilledBars, recentBackfillBars: backfilledBars, ordersPlaced: 0};
     }
@@ -771,9 +776,9 @@ export async function pollTabdealSpotTrades(env, {
         last_poll_status: age > TRADE_STREAM_MAX_AGE_MS ? "stale_latest_trade" : "no_new_trades",
         last_error_code: null, updated_at_ms: capturedAtMs
       };
-      await saveTradeCaptureState(env, values, lockToken);
+      await saveTradeCaptureState(env, values, lockToken, symbol);
       const backfilledBars = await persistTabdealRecentTradeBackfill(
-        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+        env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
       );
       return {status: values.last_poll_status, newTradeCount: 0, barsUpdated: backfilledBars, recentBackfillBars: backfilledBars, ordersPlaced: 0};
     }
@@ -783,12 +788,12 @@ export async function pollTabdealSpotTrades(env, {
     // late-in-minute trades that arrive just after a poll boundary.
     const eligibleFrom = Number(state.eligible_from_minute_ms || 0);
     const eligibleTrades = newTrades;
-    const buckets = aggregateTabdealTradeCandles(eligibleTrades, Number(state.continuity_epoch || 0));
+    const buckets = aggregateTabdealTradeCandles(eligibleTrades, Number(state.continuity_epoch || 0), symbol);
     const statements = [];
     for (const bucket of buckets) {
       const existing = await env.DB.prepare(
         "SELECT * FROM tabdeal_spot_candles_1m WHERE symbol=? AND minute_open_ms=?"
-      ).bind(TRADE_STREAM_SYMBOL, bucket.minute_open_ms).first();
+      ).bind(symbol, bucket.minute_open_ms).first();
       const merged = mergeTabdealTradeCandle(existing, bucket);
       const isClosed = bucket.minute_open_ms + TRADE_CANDLE_MS <= capturedAtMs;
       statements.push(env.DB.prepare(
@@ -798,7 +803,7 @@ export async function pollTabdealSpotTrades(env, {
         "continuity_epoch,coverage_status,is_closed,updated_at_ms) " +
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(
-        TRADE_STREAM_SYMBOL, merged.minute_open_ms, merged.open_price, merged.high_price,
+        symbol, merged.minute_open_ms, merged.open_price, merged.high_price,
         merged.low_price, merged.close_price, merged.base_volume, merged.quote_volume,
         merged.trade_count, merged.first_trade_time_ms, merged.last_trade_time_ms,
         merged.first_trade_id, merged.last_trade_id, merged.continuity_epoch,
@@ -823,17 +828,17 @@ export async function pollTabdealSpotTrades(env, {
       values.last_successful_poll_at_ms, values.last_attempt_at_ms, values.last_trade_id,
       values.last_trade_time_ms, values.eligible_from_minute_ms, values.continuity_epoch,
       values.gap_count, values.last_gap_at_ms, values.last_poll_status, values.last_error_code,
-      values.updated_at_ms, TRADE_STREAM_SYMBOL, lockToken
+      values.updated_at_ms, symbol, lockToken
     ));
     await env.DB.batch(statements);
     const backfilledBars = await persistTabdealRecentTradeBackfill(
-      env, trades, capturedAtMs, values.continuity_epoch, lockToken, state
+      env, trades, capturedAtMs, values.continuity_epoch, lockToken, state, symbol
     );
 
     if (new Date(capturedAtMs).getUTCHours() === 3 && new Date(capturedAtMs).getUTCMinutes() === 0) {
       await env.DB.prepare(
         "DELETE FROM tabdeal_spot_candles_1m WHERE symbol=? AND minute_open_ms < ?"
-      ).bind(TRADE_STREAM_SYMBOL, capturedAtMs - TRADE_STREAM_RETENTION_DAYS * 86_400_000).run();
+      ).bind(symbol, capturedAtMs - TRADE_STREAM_RETENTION_DAYS * 86_400_000).run();
     }
     return {
       status: values.last_poll_status, newTradeCount: newTrades.length,
@@ -846,24 +851,24 @@ export async function pollTabdealSpotTrades(env, {
     await env.DB.prepare(
       "UPDATE tabdeal_spot_trade_state SET last_attempt_at_ms=?, last_poll_status='fetch_error', " +
       "last_error_code=?, updated_at_ms=? WHERE symbol=? AND lease_token=?"
-    ).bind(now(), code, now(), TRADE_STREAM_SYMBOL, lockToken).run();
+    ).bind(now(), code, now(), symbol, lockToken).run();
     return {status: "fetch_error", errorCode: code, ordersPlaced: 0};
   } finally {
     await env.DB.prepare(
       "UPDATE tabdeal_spot_trade_state SET lease_token=NULL, lease_until_ms=0 WHERE symbol=? AND lease_token=?"
-    ).bind(TRADE_STREAM_SYMBOL, lockToken).run();
+    ).bind(symbol, lockToken).run();
   }
 }
 
-async function readTabdealTradeCaptureHealth(env, nowMs = Date.now()) {
+async function readTabdealTradeCaptureHealth(env, symbol = TRADE_STREAM_SYMBOL, nowMs = Date.now()) {
   const state = await env.DB.prepare(
     "SELECT * FROM tabdeal_spot_trade_state WHERE symbol=?"
-  ).bind(TRADE_STREAM_SYMBOL).first();
+  ).bind(symbol).first();
   const rows = await env.DB.prepare(
     "SELECT minute_open_ms,continuity_epoch,coverage_status,trade_count FROM tabdeal_spot_candles_1m " +
     "WHERE symbol=? AND is_closed=1 ORDER BY minute_open_ms DESC LIMIT 240"
-  ).bind(TRADE_STREAM_SYMBOL).all();
-  return buildTabdealTradeCaptureHealth(state, rows.results || [], nowMs);
+  ).bind(symbol).all();
+  return buildTabdealTradeCaptureHealth(state, rows.results || [], nowMs, symbol);
 }
 
 
@@ -886,12 +891,12 @@ const LOCAL_PAPER_MARKOUTS = Object.freeze([
   {minutes: 60, suffix: "60m"}
 ]);
 
-export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
+export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs, symbol = TRADE_STREAM_SYMBOL) {
   const pending = await env.DB.prepare(
     "SELECT symbol,strategy_version,candle_open_ms,entry_price,entry_spread_bps,entry_observed_at_ms " +
-    "FROM tabdeal_local_paper_signals WHERE paper_eligible=1 AND markout_60m_net_bps_fee10 IS NULL " +
+    "FROM tabdeal_local_paper_signals WHERE symbol=? AND paper_eligible=1 AND markout_60m_net_bps_fee10 IS NULL " +
     "AND candle_open_ms>=? ORDER BY candle_open_ms LIMIT 10"
-  ).bind(nowMs - 65 * 60_000).all();
+  ).bind(symbol, nowMs - 65 * 60_000).all();
   const orderedCandles = [...candles].sort((a, b) => a.minuteOpenMs - b.minuteOpenMs);
   const statements = [];
   for (const row of pending.results || []) {
@@ -944,21 +949,28 @@ export async function updateTabdealLocalPaperMarkouts(env, candles, nowMs) {
   return {resolvedMarkouts: statements.length};
 }
 
-export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}) {
+export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now(), symbol = TRADE_STREAM_SYMBOL} = {}) {
+  symbol = String(symbol).trim().toUpperCase();
+  if (!TABDEAL_PAPER_WATCHLIST.includes(symbol)) {
+    return {status: "blocked", reason: "symbol_not_allowlisted", symbol, liveTradingEnabled: false};
+  }
   const [state, result] = await Promise.all([
     env.DB.prepare(
       "SELECT last_successful_poll_at_ms,last_trade_time_ms,continuity_epoch,last_poll_status " +
       "FROM tabdeal_spot_trade_state WHERE symbol=?"
-    ).bind(TRADE_STREAM_SYMBOL).first(),
+    ).bind(symbol).first(),
     env.DB.prepare(
       "SELECT minute_open_ms,open_price,high_price,low_price,close_price,quote_volume," +
       "trade_count,continuity_epoch,coverage_status,is_closed " +
       "FROM tabdeal_spot_candles_1m WHERE symbol=? AND is_closed=1 " +
       "ORDER BY minute_open_ms DESC LIMIT 240"
-    ).bind(TRADE_STREAM_SYMBOL).all()
+    ).bind(symbol).all()
   ]);
   if (!state || !result.results?.length) {
-    return {status: "not_ready", reason: "local_candle_history_unavailable", liveTradingEnabled: false};
+    return {status: "not_ready", reason: "local_candle_history_unavailable", symbol, liveTradingEnabled: false};
+  }
+  if (!["captured", "no_new_trades", "stale_latest_trade"].includes(state.last_poll_status)) {
+    return {status: "blocked", reason: "latest_market_poll_not_usable", symbol, liveTradingEnabled: false};
   }
   const candles = [...result.results].reverse();
   const pollAgeMs = nowMs - Number(state.last_successful_poll_at_ms);
@@ -971,7 +983,7 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
   }
 
   const lastCandle = analysis.candles.at(-1);
-  await updateTabdealLocalPaperMarkouts(env, analysis.candles, nowMs);
+  await updateTabdealLocalPaperMarkouts(env, analysis.candles, nowMs, symbol);
 
   let paperEligible = 0;
   let entryPrice = null;
@@ -982,7 +994,7 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
   if (analysis.status === "ready" && analysis.signal === "BUY_CANDIDATE") {
     try {
       const book = await getJson(TABDEAL_API + "/depth?symbol=" +
-        encodeURIComponent(TRADE_STREAM_SYMBOL) + "&limit=100");
+        encodeURIComponent(symbol) + "&limit=100");
       const gate = assessTabdealLocalPaperBook(book);
       bookJson = JSON.stringify({
         ...gate, observedAt: new Date(nowMs).toISOString(),
@@ -995,7 +1007,7 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
           "SELECT candle_open_ms FROM tabdeal_local_paper_signals WHERE symbol=? " +
           "AND strategy_version=? AND paper_eligible=1 AND markout_60m_close_price IS NULL " +
           "AND candle_open_ms>=? ORDER BY candle_open_ms DESC LIMIT 1"
-        ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY, nowMs - 65 * 60_000).first();
+        ).bind(symbol, TABDEAL_LOCAL_PAPER_STRATEGY, nowMs - 65 * 60_000).first();
         if (active?.candle_open_ms !== undefined) {
           decisionReason += "|paper_block:prior_60m_observation_pending";
         } else {
@@ -1022,7 +1034,7 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
     "entry_observed_at_ms,indicators_json,quality_json,book_json,created_at_ms,updated_at_ms) " +
     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
   ).bind(
-    TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY, lastCandle.minuteOpenMs,
+    symbol, TABDEAL_LOCAL_PAPER_STRATEGY, lastCandle.minuteOpenMs,
     lastCandle.minuteOpenMs + 60_000, lastCandle.continuityEpoch,
     analysis.status === "ready" ? analysis.signal : "WAIT",
     String(decisionReason || "signal_not_confirmed").slice(0, 240),
@@ -1034,8 +1046,8 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
   ).run();
 
   await env.DB.prepare(
-    "DELETE FROM tabdeal_local_paper_signals WHERE candle_open_ms < ?"
-  ).bind(nowMs - 30 * 24 * 60 * 60_000).run();
+    "DELETE FROM tabdeal_local_paper_signals WHERE symbol=? AND candle_open_ms < ?"
+  ).bind(symbol, nowMs - 30 * 24 * 60 * 60_000).run();
 
   const stats = await env.DB.prepare(
     "SELECT COUNT(*) AS evaluation_count," +
@@ -1046,9 +1058,10 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
     "AVG(markout_60m_net_bps_fee20) AS avg_60m_net_bps_fee20," +
     "AVG(markout_60m_net_bps_fee40) AS avg_60m_net_bps_fee40 " +
     "FROM tabdeal_local_paper_signals WHERE symbol=? AND strategy_version=?"
-  ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY).first();
+  ).bind(symbol, TABDEAL_LOCAL_PAPER_STRATEGY).first();
 
   return {
+    symbol,
     status: analysis.status,
     signal: analysis.status === "ready" ? analysis.signal : "WAIT",
     reason: decisionReason,
@@ -1066,12 +1079,12 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now()} = {}
   };
 }
 
-async function readTabdealLocalPaperSummary(env) {
+async function readTabdealLocalPaperSummary(env, symbol = TRADE_STREAM_SYMBOL) {
   const [latest, stats] = await Promise.all([
     env.DB.prepare(
       "SELECT * FROM tabdeal_local_paper_signals WHERE symbol=? AND strategy_version=? " +
       "ORDER BY candle_open_ms DESC LIMIT 1"
-    ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY).first(),
+    ).bind(symbol, TABDEAL_LOCAL_PAPER_STRATEGY).first(),
     env.DB.prepare(
       "SELECT COUNT(*) AS evaluation_count," +
       "SUM(CASE WHEN signal='BUY_CANDIDATE' THEN 1 ELSE 0 END) AS buy_candidate_count," +
@@ -1086,13 +1099,13 @@ async function readTabdealLocalPaperSummary(env) {
       "AVG(markout_60m_net_bps_fee40) AS avg_60m_net_bps_fee40," +
       "SUM(CASE WHEN markout_60m_net_bps_fee10>0 THEN 1 ELSE 0 END) AS wins_60m_fee10 " +
       "FROM tabdeal_local_paper_signals WHERE symbol=? AND strategy_version=?"
-    ).bind(TRADE_STREAM_SYMBOL, TABDEAL_LOCAL_PAPER_STRATEGY).first()
+    ).bind(symbol, TABDEAL_LOCAL_PAPER_STRATEGY).first()
   ]);
   const parse = value => {
     try { return value ? JSON.parse(value) : null; } catch { return null; }
   };
   return {
-    provider: "TABDEAL", market: "SPOT", symbol: TRADE_STREAM_SYMBOL,
+    provider: "TABDEAL", market: "SPOT", symbol: symbol,
     strategyVersion: TABDEAL_LOCAL_PAPER_STRATEGY,
     latest: latest ? {
       candleCloseAt: new Date(Number(latest.candle_close_ms)).toISOString(),
@@ -1132,22 +1145,55 @@ async function readTabdealLocalPaperSummary(env) {
   };
 }
 
+async function readTabdealWatchlistSummary(env) {
+  const assets = await Promise.all(TABDEAL_PAPER_WATCHLIST.map(async symbol => {
+    try {
+      const [health, paper] = await Promise.all([
+        readTabdealTradeCaptureHealth(env, symbol),
+        readTabdealLocalPaperSummary(env, symbol)
+      ]);
+      return {symbol, health, paper};
+    } catch (error) {
+      return {symbol, health: {status: "unavailable"}, paper: null,
+        errorCode: errorCode(error, "watchlist_read_failed")};
+    }
+  }));
+  return {
+    provider: "TABDEAL", market: "SPOT",
+    mode: "multi_asset_forward_paper_diagnostics",
+    watchlist: [...TABDEAL_PAPER_WATCHLIST],
+    assets, liveTradingEnabled: false, exchangeOrdersCreated: 0, fundsMoved: false
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method !== "GET") return json({error: "method_not_allowed"}, 405);
     if (url.pathname === "/market-data/health") {
+      const symbol = String(url.searchParams.get("symbol") || TRADE_STREAM_SYMBOL).trim().toUpperCase();
+      if (!TABDEAL_PAPER_WATCHLIST.includes(symbol)) return json({error: "symbol_not_allowlisted"}, 400);
       try {
-        return json({provider: "TABDEAL", market: "SPOT", ...await readTabdealTradeCaptureHealth(env)});
+        return json({provider: "TABDEAL", market: "SPOT", ...await readTabdealTradeCaptureHealth(env, symbol)});
       } catch {
         return json({provider: "TABDEAL", market: "SPOT", status: "unavailable", captureReady: false}, 503);
       }
     }
     if (url.pathname === "/market-data/local-paper") {
+      const symbol = String(url.searchParams.get("symbol") || TRADE_STREAM_SYMBOL).trim().toUpperCase();
+      if (!TABDEAL_PAPER_WATCHLIST.includes(symbol)) return json({error: "symbol_not_allowlisted"}, 400);
       try {
-        return json(await readTabdealLocalPaperSummary(env));
+        return json(await readTabdealLocalPaperSummary(env, symbol));
       } catch {
         return json({provider: "TABDEAL", market: "SPOT", status: "unavailable", liveTradingEnabled: false}, 503);
+      }
+    }
+    if (url.pathname === "/market-data/watchlist") {
+      try {
+        return json(await readTabdealWatchlistSummary(env));
+      } catch {
+        return json({provider: "TABDEAL", market: "SPOT", status: "unavailable",
+          watchlist: [...TABDEAL_PAPER_WATCHLIST], assets: [], liveTradingEnabled: false}, 503);
       }
     }
     if (url.pathname === "/health") {
@@ -1171,40 +1217,46 @@ export default {
     return json({error: "not_found"}, 404);
   },
   async scheduled(event, env) {
-    // First finish the one-minute public trade poll so local Paper never evaluates
-    // an old D1 state simply because it raced the current market-data capture.
-    const pollOutcomes = await Promise.allSettled([pollTabdealSpotTrades(env)]);
-    if (pollOutcomes.some(item => item.status === "rejected")) {
-      console.error("tabdeal_spot_trade_poll_failed", String(
-        pollOutcomes.find(item => item.status === "rejected")?.reason?.message || "unknown"
-      ));
-    }
+    const symbolTasks = TABDEAL_PAPER_WATCHLIST.map(async symbol => {
+      let poll;
+      try {
+        poll = await pollTabdealSpotTrades(env, {symbol});
+      } catch (error) {
+        console.error("tabdeal_spot_trade_poll_failed", JSON.stringify({
+          symbol, error: String(error?.message || error)
+        }));
+        return;
+      }
+      if (!["captured", "no_new_trades", "stale_latest_trade"].includes(poll.status)) {
+        console.warn("tabdeal_local_paper_skipped_after_poll", JSON.stringify({
+          symbol, pollStatus: poll.status
+        }));
+        return;
+      }
+      try {
+        const result = await runTabdealLocalPaperCapture(env, {symbol});
+        console.info("TABDEAL_LOCAL_PAPER_EVALUATION " + JSON.stringify({
+          symbol,
+          status: result.status,
+          signal: result.signal || "WAIT",
+          reason: result.reason || null,
+          candleCloseAt: result.indicators?.latestCandleCloseAt || null,
+          paperEntryRecorded: result.paper?.eligibleEntryRecorded === true,
+          evaluationCount: result.paper?.summary?.evaluation_count ?? null
+        }));
+      } catch (error) {
+        console.error("tabdeal_local_paper_capture_failed", JSON.stringify({
+          symbol, error: String(error?.message || error)
+        }));
+      }
+    });
 
-    // The legacy 15m Shadow scan remains independent of the Paper monitor.
-    const followUpTasks = [];
+    const tasks = [...symbolTasks];
     if (shouldRunTabdealQuarterHourScan(event)) {
-      followUpTasks.push(
-        runScan(env).catch(error => {
-          console.error("tabdeal_shadow_scan_failed", String(error?.message || error));
-        })
-      );
+      tasks.push(runScan(env).catch(error => {
+        console.error("tabdeal_shadow_scan_failed", String(error?.message || error));
+      }));
     }
-    followUpTasks.push(
-      runTabdealLocalPaperCapture(env)
-        .then(result => {
-          console.info("TABDEAL_LOCAL_PAPER_EVALUATION " + JSON.stringify({
-            status: result.status,
-            signal: result.signal || "WAIT",
-            reason: result.reason || null,
-            candleCloseAt: result.indicators?.latestCandleCloseAt || null,
-            paperEntryRecorded: result.paper?.eligibleEntryRecorded === true,
-            evaluationCount: result.paper?.summary?.evaluation_count ?? null
-          }));
-        })
-        .catch(error => {
-          console.error("tabdeal_local_paper_capture_failed", String(error?.message || error));
-        })
-    );
-    await Promise.allSettled(followUpTasks);
+    await Promise.allSettled(tasks);
   }
 };
