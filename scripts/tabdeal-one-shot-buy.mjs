@@ -283,7 +283,7 @@ export async function runTabdealOneShotBuy({
   let preflight;
   try {
     const [exchangeInfo, depth] = await Promise.all([
-      publicGet("/exchangeInfo?symbol=" + ONE_SHOT_SYMBOL, fetchImpl),
+      publicGet("/exchangeInfo", fetchImpl),
       publicGet("/depth?symbol=" + ONE_SHOT_SYMBOL + "&limit=20", fetchImpl)
     ]);
     const info = findSymbolInfo(exchangeInfo);
