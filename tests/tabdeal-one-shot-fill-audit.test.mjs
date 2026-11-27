@@ -86,8 +86,8 @@ test("accounts for commission paid in USDT", async () => {
     }]
   });
   const report = await auditTabdealOneShotFill({apiKey, apiSecret, fetchImpl});
-  assert.equal(report.accounting.quoteFeeUSDT, "0.004035510000");
-  assert.equal(report.accounting.totalQuoteDebitIfUsdtFee, "1.012913430000");
+  assert.equal(report.accounting.quoteFeeUSDT, "0.00403551");
+  assert.equal(report.accounting.totalQuoteDebitIfUsdtFee, "1.01291343");
   assert.equal(report.accounting.netAcquiredBTCIfBtcFee, "0.000017");
 });
 test("does not accept an unrelated order identifier", async () => {
