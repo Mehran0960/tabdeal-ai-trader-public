@@ -1171,30 +1171,40 @@ export default {
     return json({error: "not_found"}, 404);
   },
   async scheduled(event, env) {
-    // Keep the 1m public trade poll, 15m Shadow scan, and local Paper evaluation
-    // independent: a failed legacy scan must not skip forward-paper diagnostics.
-    const tasks = [pollTabdealSpotTrades(env)];
+    // First finish the one-minute public trade poll so local Paper never evaluates
+    // an old D1 state simply because it raced the current market-data capture.
+    const pollOutcomes = await Promise.allSettled([pollTabdealSpotTrades(env)]);
+    if (pollOutcomes.some(item => item.status === "rejected")) {
+      console.error("tabdeal_spot_trade_poll_failed", String(
+        pollOutcomes.find(item => item.status === "rejected")?.reason?.message || "unknown"
+      ));
+    }
+
+    // The legacy 15m Shadow scan remains independent of the Paper monitor.
+    const followUpTasks = [];
     if (shouldRunTabdealQuarterHourScan(event)) {
-      tasks.push(runScan(env));
+      followUpTasks.push(
+        runScan(env).catch(error => {
+          console.error("tabdeal_shadow_scan_failed", String(error?.message || error));
+        })
+      );
     }
-    const paperTask = runTabdealLocalPaperCapture(env)
-      .then(result => {
-        console.info("TABDEAL_LOCAL_PAPER_EVALUATION " + JSON.stringify({
-          status: result.status,
-          signal: result.signal || "WAIT",
-          reason: result.reason || null,
-          candleCloseAt: result.indicators?.latestCandleCloseAt || null,
-          paperEntryRecorded: result.paper?.eligibleEntryRecorded === true,
-          evaluationCount: result.paper?.summary?.evaluation_count ?? null
-        }));
-      })
-      .catch(error => {
-        console.error("tabdeal_local_paper_capture_failed", String(error?.message || error));
-      });
-    tasks.push(paperTask);
-    const outcomes = await Promise.allSettled(tasks);
-    if (outcomes.some(item => item.status === "rejected")) {
-      throw new Error("tabdeal_shadow_scheduled_task_failed");
-    }
+    followUpTasks.push(
+      runTabdealLocalPaperCapture(env)
+        .then(result => {
+          console.info("TABDEAL_LOCAL_PAPER_EVALUATION " + JSON.stringify({
+            status: result.status,
+            signal: result.signal || "WAIT",
+            reason: result.reason || null,
+            candleCloseAt: result.indicators?.latestCandleCloseAt || null,
+            paperEntryRecorded: result.paper?.eligibleEntryRecorded === true,
+            evaluationCount: result.paper?.summary?.evaluation_count ?? null
+          }));
+        })
+        .catch(error => {
+          console.error("tabdeal_local_paper_capture_failed", String(error?.message || error));
+        })
+    );
+    await Promise.allSettled(followUpTasks);
   }
 };
