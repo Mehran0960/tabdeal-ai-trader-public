@@ -96,7 +96,8 @@ async function main(){
     ?await loadRollingState(path.join(historyRepo,stateRelativePath),nowMs)
     :createTabdealLiveWatchState(null,{nowMs});
   const stats={
-    connectionsOpened:0,reconnects:0,subscriptionAcks:0,subscriptionRejections:0,
+    connectionsOpened:0,reconnects:0,subscriptionAcks:0,
+    subscriptionAcceptedSymbols:0,subscriptionRejectedSymbols:0,subscriptionRejections:0,
     receivedMessages:0,invalidMessages:0,ignoredMessages:0,
     eventLagSum:0,eventLagCount:0,maxAbsoluteEventLagMs:0,
     bySymbol:Object.fromEntries(symbols.map(symbol=>[symbol,{
@@ -213,6 +214,8 @@ async function main(){
       }
       await sleep(250);
     }
+    stats.subscriptionAcceptedSymbols+=accepted;
+    stats.subscriptionRejectedSymbols+=rejectedSymbols.length;
     subscriptionErrors.push({
       code:"subscription_batch_summary",
       sentBatches:sent,acceptedSymbols:accepted,
