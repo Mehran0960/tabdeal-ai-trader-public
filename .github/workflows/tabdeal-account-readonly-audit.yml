@@ -1,0 +1,43 @@
+name: Tabdeal signed TRADE capability check (read-only, v2)
+
+on:
+  push:
+    branches:
+      - ops/tabdeal-actions-runner-smoke-20261127
+    paths:
+      - ".github/workflows/tabdeal-account-readonly-audit.yml"
+      - "src/tabdeal-account-read-auth.js"
+      - "scripts/tabdeal-account-readonly-audit.mjs"
+      - "tests/tabdeal-account-readonly-audit.test.mjs"
+  workflow_dispatch:
+    inputs:
+      confirm_read_only:
+        description: "Confirm GET /account, GET /openOrders?symbol=PAXGUSDT, and GET /order using a synthetic ID only"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-account-readonly-audit
+  cancel-in-progress: false
+
+jobs:
+  read-only-account-audit:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && (github.event_name == 'push' || inputs.confirm_read_only == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify strict read-only audit guard tests
+        run: node --test tests/tabdeal-account-readonly-audit.test.mjs
+      - name: Check signed account and order-read access only
+        env:
+          TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
+          TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
+        run: node scripts/tabdeal-account-readonly-audit.mjs
