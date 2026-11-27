@@ -409,7 +409,7 @@ function selectLatestTabdealBooks(rows,nowMs) {
         Number(row.bidDepthTop5Quote)<ROTATION_POLICY.minimumTopFiveDepthUsdt||
           Number(row.askDepthTop5Quote)<ROTATION_POLICY.minimumTopFiveDepthUsdt?"tabdeal_book_depth_too_thin":
         "tabdeal_market_rules_or_book_invalid",
-      capturedAtMs,ageMs:age,spreadBps:Number(row.spreadBps),
+      capturedAtMs:Number(row.capturedAtMs),ageMs:age,spreadBps:Number(row.spreadBps),
       bidDepthTop5Quote:Number(row.bidDepthTop5Quote),askDepthTop5Quote:Number(row.askDepthTop5Quote),
       bids:bidLevels,asks:askLevels,marketRules:row.marketRules
     };
