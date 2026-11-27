@@ -38,6 +38,8 @@ A recent 4h screen found no candidate that remained profitable in all three prov
 | Kraken Spot | Optional cross-check only | Different quote currency (USD); not an executable Tabdeal price |
 | Telegram channels / paid feeds / CoinGecko / auxiliary feeds | Not in MVP | Not required for the first signal/execution path; rights, latency or incremental value are not established |
 
+The local depth gate requires at least 1,000 USDT of quoted depth within 0.25% of mid-price **on each side independently**; strong bids cannot compensate for a thin ask book, and vice versa. Both sides must pass.
+
 If Kraken retrieval is unavailable or the returned candle series is stale/gapped, output **WAIT**. Do not silently convert Kraken USD to USDT or treat it as a Tabdeal price. If the Tabdeal book is stale, crossed, too wide or has insufficient depth, output **WAIT**. A missing source is a veto, not a reason to fabricate or blend prices.
 
 ## Minimal operating flow
