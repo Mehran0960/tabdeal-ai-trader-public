@@ -108,6 +108,7 @@ export function prepareTabdealSellAllBtc({
   maxSpreadBps = TABDEAL_SELL_MAX_SPREAD_BPS,
   maxSlippageBps = TABDEAL_SELL_MAX_SLIPPAGE_BPS
 } = {}) {
+  if (account?.canTrade === false) fail("tabdeal_sell_account_trading_disabled");
   if (!isRecord(symbolInfo) || symbolInfo.symbol !== TABDEAL_SELL_SYMBOL) {
     fail("tabdeal_sell_symbol_info_missing");
   }
@@ -158,13 +159,13 @@ export function prepareTabdealSellAllBtc({
   }
 
   const pricePrecision = Math.max(
-    precisionOf(depth.bids[0][0]),
+    precisionOf(String(bids[0].price)),
     precisionOf(priceFilter.tickSize),
     precisionOf(priceFilter.minPrice ?? "0"),
     precisionOf(priceFilter.maxPrice ?? "0")
   );
   if (pricePrecision > 24) fail("tabdeal_sell_price_precision_unsupported");
-  const bidUnits = decimalUnits(String(depth.bids[0][0]), pricePrecision);
+  const bidUnits = decimalUnits(String(bids[0].price), pricePrecision);
   const tickUnits = decimalUnits(priceFilter.tickSize, pricePrecision);
   const floorNumerator = bidUnits * BigInt(10_000 - maxSlippageBps);
   const floorUnitsBeforeTick = floorNumerator / 10_000n;
