@@ -116,3 +116,33 @@ test("uses a next-bar execution price and charges each order",()=>{
   assert.equal(result.position.symbol,"BTCUSDT");
   assert.ok(result.position.quantity<1000/110);
 });
+
+
+test("uses liquidity-priority order and requires 2,000 bars for dynamic-universe membership",()=>{
+  const tooShort=normalizeStrategyTournamentHistory(makeRows({count:900}),{
+    nowMs:TEST_NOW,symbols:["DOGEUSDT","XRPUSDT","SOLUSDT","ETHUSDT","BTCUSDT"]
+  });
+  assert.equal(tooShort.available,false);
+  assert.equal(tooShort.reason,"tournament_too_few_eligible_symbols");
+  const nowMs=START+2000*INTERVAL+INTERVAL+1000;
+  const full=normalizeStrategyTournamentHistory(makeRows({count:2001}),{
+    nowMs,symbols:["DOGEUSDT","XRPUSDT","SOLUSDT","ETHUSDT","BTCUSDT"]
+  });
+  assert.equal(full.available,true);
+  assert.deepEqual(full.symbols,["DOGEUSDT","XRPUSDT","SOLUSDT","ETHUSDT","BTCUSDT"]);
+  assert.equal(full.latestContiguousBars,2001);
+});
+
+test("blocks Paper review when the dynamic exchange universe is incomplete",()=>{
+  const report=runStrategyFamilyTournament({
+    rows:makeRows({count:900}),nowMs:TEST_NOW,
+    dynamicUniverse:{
+      source:"dynamic_tabdeal_binance_spot_usdt",
+      status:"capacity_exceeded",coverageComplete:false,
+      eligibleBeforeCap:235,selectedMarketCount:200,omittedBySafetyCap:35
+    }
+  });
+  assert.equal(report.universeCoverage.coverageComplete,false);
+  assert.equal(report.paperReviewBlockReason,"dynamic_universe_coverage_incomplete");
+  assert.deepEqual(report.prospectivePaperCandidates,[]);
+});
