@@ -9,7 +9,7 @@ A read-only GitHub Actions audit on the public repository completed successfully
 
 - Signed `GET /account`: HTTP 200; account type `SPOT`; `canTrade=true`.
 - Signed `GET /openOrders?symbol=PAXGUSDT`: HTTP 200; the endpoint returned zero open orders at the time of the check.
-- Signed `GET /order`: queried only with a synthetic `origClientOrderId` reserved for this audit. The expected result is “not found”; no account order details are logged.
+- Signed `GET /order` using the synthetic `origClientOrderId` `audit-probe-no-order-20261127`: HTTP 404; the synthetic order was not found, as expected. No account order details are logged.
 - All three calls use the `TRADE` authentication class and HMAC-SHA256 signing.
 - No `POST`, `DELETE`, cancellation, withdrawal, transfer, or balance read/print was performed.
 
@@ -28,6 +28,7 @@ The current execution client is deliberately fail-closed by default:
 - Before submission, the client looks up the exact client order ID to prevent duplicates.
 - On an ambiguous POST result, it reconciles by client order ID and never repeats the POST automatically.
 - The risk planner rejects missing fee/slippage assumptions, invalid stop placement, daily-loss breaches, and drawdown breaches. It defaults to 0.25% risk per trade and a 10% drawdown stop; configured maxima are 1% risk per trade and 20% drawdown.
+- These controls are not yet a complete live authorization boundary: the executor currently accepts a caller-supplied `riskPlan` and a caller-supplied `portfolioRiskChecksPassed` flag. These must be replaced or bound to trusted server-side portfolio state before any live integration.
 
 ## Remaining blockers before any live order
 
