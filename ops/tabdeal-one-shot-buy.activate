@@ -4,3 +4,5 @@ Scope: one BTCUSDT Spot market BUY only.
 Hard quote-notional cap: 1.00000000 USDT.
 Authorization: user-approved in conversation on 2026-11-27.
 No recurring trading; the permanent GitHub ref lock prevents a second execution.
+
+Retry activation after correcting exchangeInfo endpoint shape; earlier attempt stopped before any POST and did not claim the permanent lock.
