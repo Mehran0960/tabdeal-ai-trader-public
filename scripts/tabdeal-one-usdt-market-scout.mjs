@@ -104,7 +104,7 @@ function normalizedSymbolList(payload) {
     info.orderTypes.includes("LIMIT")
   );
 }
-function sizeWithinOneUsdt(info, depth) {
+export function sizeWithinOneUsdt(info, depth) {
   const asks = parseLevels(depth?.asks);
   const bids = parseLevels(depth?.bids);
   if (!asks.length || !bids.length) return {ok:false,reason:"book_empty"};
@@ -197,7 +197,8 @@ async function main() {
     publicGet("/exchangeInfo"),
     privateGet("/account",{},apiKey,apiSecret)
   ]);
-  if (account?.accountType!=="SPOT" || account?.canTrade!==true) {
+  if (account?.accountType!=="SPOT" || account?.canTrade!==true ||
+      !Array.isArray(account?.permissions) || !account.permissions.includes("SPOT")) {
     throw new Error("spot_account_trade_permission_not_confirmed");
   }
   const freeUsdt=Array.isArray(account.balances)
