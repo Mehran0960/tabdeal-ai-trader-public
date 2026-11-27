@@ -54,7 +54,7 @@ test("discovers all active Spot markets quoted in USDT or BTC and excludes IRT",
   assert.equal(result.universe.totalExchangeInfoMarkets,6);
   assert.equal(result.universe.activeSupportedSpotMarkets,2);
   assert.equal(result.universe.marketRulesReadyCount,2);
-  assert.equal(result.universe.excludedAsset,2);
+  assert.equal(result.universe.excluded.excludedAsset,1);
   assert.equal(result.universe.excluded.inactive,1);
   assert.equal(result.universe.excluded.nonSpot,1);
 });
@@ -137,7 +137,7 @@ test("restores only recent, valid, ordered minute bars and never restores stale 
       BTCUSDT:[
         {time:NOW-3*INTERVAL,open:100,high:101,low:99,close:100,updateCount:10},
         {time:NOW-2*INTERVAL,open:100,high:102,low:99,close:101,updateCount:10},
-        {time:NOW-100*INTERVAL,open:100,high:101,low:99,close:100,updateCount:1},
+        {time:NOW-3*60*60*1000,open:100,high:101,low:99,close:100,updateCount:1},
         {time:NOW-INTERVAL,open:100,high:98,low:99,close:98,updateCount:1}
       ]
     },
