@@ -1,0 +1,35 @@
+name: Tabdeal BTC sell preflight (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-btc-sell-preflight
+  cancel-in-progress: false
+
+jobs:
+  read-only-preflight:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify sell preflight and execution guard tests
+        run: |
+          node --check src/tabdeal-sell-all.js
+          node --check scripts/tabdeal-sell-all-btc.mjs
+          node --test tests/tabdeal-sell-all.test.mjs
+      - name: Run read-only sell preflight
+        env:
+          TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
+          TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
+          TABDEAL_SELL_MODE: dry_run
+          TABDEAL_SELL_CONFIRM: "false"
+          TABDEAL_SELL_CONFIRM_QUANTITY: ""
+        run: node scripts/tabdeal-sell-all-btc.mjs
