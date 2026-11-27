@@ -189,7 +189,7 @@ function limitBuyForOneUsdt({
 
   const feeDenominator = notionalDenominator * 10_000n;
   const estimatedTotalDebitUnits =
-    (notionalNumerator * BigInt(10_000 + commissionBps) * quoteScale / feeDenominator);
+    (notionalNumerator * BigInt(10_000 + commissionBps) + feeDenominator - 1n) / feeDenominator;
   const estimatedTotalDebit = unitsDecimal(estimatedTotalDebitUnits, 8);
   const totalDebit = Number(estimatedTotalDebit);
   if (!Number.isFinite(totalDebit) || totalDebit > Number(maxTotalDebitQuote)) {
@@ -253,18 +253,27 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     throw new Error("account_spot_permission_missing");
   }
   const usdt = getBalances(account).find(row => isRecord(row) && row.asset === ONE_SHOT_QUOTE_ASSET);
-  const freeUsdt = positive(usdt?.free) ?? 0;
-  if (freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
+  const freeUsdtString = usdt?.free === undefined ? "0" : String(usdt.free);
+  const freeUsdtUnits = decimalUnits(freeUsdtString, 8);
+  const freeUsdt = Number(unitsDecimal(freeUsdtUnits, 8));
+  if (!Number.isFinite(freeUsdt) || freeUsdt + 1e-12 < Number(ONE_SHOT_QUOTE_AMOUNT)) {
     throw new Error("free_usdt_below_one");
   }
   const makerCommission = Number(account.makerCommission);
   const takerCommission = Number(account.takerCommission);
-  const commissionBps =
-    Number.isSafeInteger(makerCommission) && makerCommission >= 0 && makerCommission <= 10_000 &&
-    Number.isSafeInteger(takerCommission) && takerCommission >= 0 && takerCommission <= 10_000
-      ? Math.max(makerCommission, takerCommission) : null;
-  // The user's order amount is the quote notional; do not subtract a fee reserve.
-  // Tabdeal reports the actual commission and commissionAsset on each fill.
+  if (!Number.isSafeInteger(makerCommission) || makerCommission < 0 || makerCommission > 10_000 ||
+      !Number.isSafeInteger(takerCommission) || takerCommission < 0 || takerCommission > 10_000) {
+    throw new Error("account_spot_commission_rate_unavailable");
+  }
+  const commissionBps = Math.max(makerCommission, takerCommission);
+  // User's quote input stays 1 USDT. The free account balance is the absolute
+  // all-in debit cap; reserve the maximum account commission against that cap.
+  const maxQuoteBudgetUnits =
+    (freeUsdtUnits * 10_000n) / BigInt(10_000 + commissionBps);
+  const maxQuoteBudget = unitsDecimal(maxQuoteBudgetUnits, 8);
+  if (maxQuoteBudgetUnits < decimalUnits(ONE_SHOT_QUOTE_AMOUNT, 8)) {
+    throw new Error("free_usdt_insufficient_for_one_quote_unit_after_fees");
+  }
   const quoteBudget = ONE_SHOT_QUOTE_AMOUNT;
   if (!Array.isArray(openOrders) || openOrders.length !== 0) {
     throw new Error("existing_btcusdt_open_orders_present");
@@ -316,7 +325,8 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
       symbol: ONE_SHOT_SYMBOL, side: "BUY", type: "MARKET",
       quoteOrderQty: quoteBudget,
       maxQuoteNotional: Number(quoteBudget),
-      maxTotalDebitQuote: Number(ONE_SHOT_QUOTE_AMOUNT),
+      maxTotalDebitQuote: freeUsdt,
+      maxQuoteBudget,
       quoteBudget, commissionBps,
       estimatedQuoteNotional: Number(quoteBudget),
       freeUsdt, minNotional, bestBid, bestAsk, spreadBps,
@@ -329,10 +339,10 @@ function buildPreflight({symbolInfo, depth, account, openOrders}) {
     };
   }
 
-  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0]), quoteBudget});
+  const limitIntent = limitBuyForOneUsdt({symbolInfo, asks, bestAskText: String(depth.asks[0][0]), quoteBudget, maxQuoteBudget, maxTotalDebitQuote: freeUsdt, commissionBps});
   return {
     symbol: ONE_SHOT_SYMBOL, side: "BUY", ...limitIntent,
-    freeUsdt, commissionBps, bestBid, bestAsk, spreadBps,
+    freeUsdt, maxQuoteBudget, commissionBps, bestBid, bestAsk, spreadBps,
     marketOrderAllowed: false,
     quoteOrderQtyMarketAllowed: false,
     openOrdersBefore: openOrders.length
