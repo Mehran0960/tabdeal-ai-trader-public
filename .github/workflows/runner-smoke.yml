@@ -1,0 +1,23 @@
+name: Public repo GitHub Actions runner smoke test
+
+on:
+  push:
+    branches:
+      - ops/tabdeal-actions-runner-smoke-20261127
+    paths:
+      - ".github/workflows/runner-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  runner-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm GitHub-hosted runner allocation
+        run: |
+          echo "RUNNER_ALLOCATION_OK"
+          echo "RUNNER_OS=$RUNNER_OS"
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          node --version
