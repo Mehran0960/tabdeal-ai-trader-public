@@ -1,0 +1,52 @@
+name: Tabdeal Strategy Family Tournament
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/strategy-family-tournament.js"
+      - "scripts/strategy-family-tournament.mjs"
+      - "tests/strategy-family-tournament.test.mjs"
+      - ".github/workflows/strategy-family-tournament.yml"
+  schedule:
+    - cron: "35 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tabdeal-strategy-family-tournament
+  cancel-in-progress: false
+
+jobs:
+  tournament:
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out private-safe append-only public market history
+        uses: actions/checkout@v4
+        with:
+          ref: signal-history
+          path: signal-history
+          token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax-check tournament and run focused tests
+        run: |
+          node --check src/strategy-family-tournament.js
+          node --check scripts/strategy-family-tournament.mjs
+          node --test tests/strategy-family-tournament.test.mjs
+      - name: Compare all strategy families across identical data and costs
+        run: node scripts/strategy-family-tournament.mjs --history-dir signal-history/data/international-market-history
+      - name: Upload sanitized tournament report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tabdeal-strategy-family-tournament-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/strategy-family-tournament/latest.json
+          if-no-files-found: warn
+          retention-days: 30
