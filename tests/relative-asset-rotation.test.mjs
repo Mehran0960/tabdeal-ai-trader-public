@@ -90,7 +90,8 @@ test("blocks incomplete or stale aligned historical data",()=>{
 
 test("rejects conflicting duplicate historical candles",()=>{
   const rows=makeHistory();
-  const duplicate={...rows[0],close:Number(rows[0].close)*1.01};
+  const duplicate={...rows[0],close:Number(rows[0].close)*1.01,
+    high:Math.max(Number(rows[0].high),Number(rows[0].close)*1.01)};
   assert.throws(()=>runRelativeAssetRotationResearch({
     rows:[...rows,duplicate],nowMs:START+619*INTERVAL+INTERVAL+1000
   }),/rotation_conflicting_duplicate/);
@@ -257,7 +258,9 @@ test("does not simulate a Paper fill when top-five depth cannot fully execute th
       }
     }};
   const result=applyRelativeRotationPaperTick({report,nowMs});
-  assert.equal(result.changed,false);
+  assert.equal(result.changed,true);
+  assert.match(result.reason,/paper_buy/);
+  assert.equal(result.events.length,0);
   assert.equal(result.state.position,null);
 });
 
