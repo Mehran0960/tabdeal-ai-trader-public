@@ -106,26 +106,34 @@ async function main(){
   };
   const observations=[];
   const persistResults=[];
+  const ackWaiters=new Map();
   let activeSocket=null,stopping=false,connectionTimer=null,reconnectTimer=null;
   let reconnectDelayMs=1_000,lastEvaluationBucket=0,lastPersistAtMs=startedAtMs;
   let subscriptionErrors=[];
   const endAtMs=startedAtMs+durationMinutes*60_000;
+  const requestStop=()=>{stopping=true;};
+  process.once("SIGTERM",requestStop);
+  process.once("SIGINT",requestStop);
 
   function recordMessage(raw){
     let parsed;
     try{parsed=JSON.parse(raw);}catch{stats.invalidMessages++;return;}
     if(parsed&&Number.isSafeInteger(Number(parsed.id))){
+      const id=Number(parsed.id);
+      const waiter=ackWaiters.get(id);
       if(parsed.error){
-        stats.subscriptionRejections++;
-        subscriptionErrors.push({
-          id:Number(parsed.id),
-          code:String(parsed.error.code??"subscription_rejected"),
+        const error={
+          id,code:String(parsed.error.code??"subscription_rejected"),
           message:String(parsed.error.msg??"").slice(0,120)
-        });
+        };
+        subscriptionErrors.push(error);
+        waiter?.resolve({ok:false,error});
       }else if(parsed.result===null){
         stats.subscriptionAcks++;
+        waiter?.resolve({ok:true});
       }else{
         stats.ignoredMessages++;
+        waiter?.resolve({ok:false,error:{id,code:"subscription_ack_shape_invalid"}});
       }
       return;
     }
@@ -158,17 +166,58 @@ async function main(){
     return value!==null&&typeof value==="object"&&!Array.isArray(value);
   }
   async function sendSubscriptions(ws){
-    const pending=new Map();
-    for(const batch of batches)pending.set(batch.id,batch);
-    let next=0;
-    for(const batch of batches){
-      if(stopping||ws!==activeSocket||ws.readyState!==1)break;
-      try{ws.send(JSON.stringify(batch.message));}
-      catch{subscriptionErrors.push({id:batch.id,code:"subscription_send_failed"});}
-      next++;
-      await sleep(150);
+    let nextId=1000;
+    const queue=[...batches];
+    let sent=0,accepted=0,rejectedSymbols=[];
+    while(queue.length&&!stopping&&ws===activeSocket&&ws.readyState===1){
+      const batch=queue.shift();
+      const id=nextId++;
+      const message={...batch.message,id};
+      const ackPromise=new Promise(resolve=>{
+        const timer=setTimeout(()=>{
+          ackWaiters.delete(id);
+          resolve({ok:false,error:{id,code:"subscription_ack_timeout"}});
+        },8_000);
+        ackWaiters.set(id,{
+          resolve:value=>{clearTimeout(timer);ackWaiters.delete(id);resolve(value);}
+        });
+      });
+      try{
+        ws.send(JSON.stringify(message));
+        sent++;
+      }catch{
+        const result={ok:false,error:{id,code:"subscription_send_failed"}};
+        if(batch.symbols.length>1){
+          const half=Math.ceil(batch.symbols.length/2);
+          queue.unshift(
+            {symbols:batch.symbols.slice(half),message:{method:"SUBSCRIBE",params:batch.symbols.slice(half).map(symbol=>symbol.toLowerCase()+"@depth@2000ms")}},
+            {symbols:batch.symbols.slice(0,half),message:{method:"SUBSCRIBE",params:batch.symbols.slice(0,half).map(symbol=>symbol.toLowerCase()+"@depth@2000ms")}}
+          );
+        }else rejectedSymbols.push(...batch.symbols);
+        continue;
+      }
+      const result=await ackPromise;
+      if(result.ok){
+        accepted+=batch.symbols.length;
+      }else if(batch.symbols.length>1){
+        const half=Math.ceil(batch.symbols.length/2);
+        // Retry rejected payloads in smaller batches; never increase request rate.
+        queue.unshift(
+          {symbols:batch.symbols.slice(half),message:{method:"SUBSCRIBE",params:batch.symbols.slice(half).map(symbol=>symbol.toLowerCase()+"@depth@2000ms")}},
+          {symbols:batch.symbols.slice(0,half),message:{method:"SUBSCRIBE",params:batch.symbols.slice(0,half).map(symbol=>symbol.toLowerCase()+"@depth@2000ms")}}
+        );
+      }else{
+        rejectedSymbols.push(...batch.symbols);
+      }
+      await sleep(250);
     }
-    return {sent:next,planned:batches.length,pending:pending.size};
+    subscriptionErrors.push({
+      code:"subscription_batch_summary",
+      sentBatches:sent,acceptedSymbols:accepted,
+      rejectedSymbols:rejectedSymbols.slice(0,100),
+      rejectedSymbolCount:rejectedSymbols.length
+    });
+    return {sentBatches:sent,acceptedSymbols:accepted,rejectedSymbols};
   }
   function connect(){
     if(stopping)return;
