@@ -4,8 +4,8 @@ Last audited: **2026-11-26**.
 
 ## Two repositories, one project lineage
 
-- **Private integration/core repository:** [Mehran0960/nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader). It holds the broader research/risk codebase, Tabdeal-specific private ingestion/operations, and infrastructure-specific configuration. Access is private; credentials, account data, Worker/D1 details and operational logs stay there.
-- **Public research companion:** [Mehran0960/tabdeal-ai-trader-public](https://github.com/Mehran0960/tabdeal-ai-trader-public) (this repository). It is a sanitized, credential-free, publicly reviewable research slice for the Tabdeal Spot lane. It deliberately has no authenticated account client or live order executor.
+- **Canonical Tabdeal MVP source:** [Mehran0960/tabdeal-ai-trader-public](https://github.com/Mehran0960/tabdeal-ai-trader-public) (this repository). It now owns public market research, shared risk/Paper modules, and the fail-closed Tabdeal Spot order adapter. API credentials and Cloudflare bindings are not stored here.
+- **Legacy private operations archive:** [Mehran0960/nobitex-ai-trader](https://github.com/Mehran0960/nobitex-ai-trader). It retains the older Nobitex-oriented integration, existing private Worker/D1 operational code and secret bindings. Its GitHub Actions runner is not required for public Tabdeal code CI or research. The already-deployed Cloudflare Worker has its own Cron and is independent of GitHub Actions; it is not an order executor.
 
 Do not describe these as independent trading systems. Their reusable research and risk components are related and must remain traceable across repositories.
 
@@ -30,15 +30,15 @@ This is an audited snapshot, not a claim that all repository files are the same.
 
 ## Ownership and synchronization rule
 
-1. Treat the private repository as the coordination point for the reusable research/risk core and the private Tabdeal operational integration.
-2. When a shared, venue-neutral module changes, run its tests in the private repository, then mirror only the sanitized shared file and matching tests into this public repository. Record the upstream repository, source commit SHA, file path and blob SHA in the change/PR description.
-3. Do not copy private credentials, account output, secret names/values, private logs, Worker URLs, D1 identifiers or operational configuration into this repository.
+1. Treat this public repository as the canonical source for the Tabdeal Spot MVP and its reusable research/risk modules.
+2. Do not require the private repository's GitHub Actions runner to test public modules. Public CI is the validation gate for changes in this repository.
+3. Keep the older private Nobitex/Cloudflare integration isolated. Do not mirror private operational files, secret names/values, account results, Worker URLs or D1 identifiers into this repository.
 4. Keep venue-specific adapters separate. A matching file path does not prove a matching contract; inspect source, market rules and tests before reusing any exchange adapter.
-5. If a shared file is changed here for a Tabdeal-specific reason, explicitly record the divergence and decide whether the generic core or the Tabdeal adapter owns the change. Never let silent drift accumulate.
+5. If the old private repository changes a mirrored shared module, deliberately port only the required sanitized code and matching tests here; never allow silent drift.
 
 ## Signal discovery and execution boundary
 
-**Signal discovery should use reliable, reachable international public market data. Tabdeal remains the intended execution venue.** The planned source order is:
+**Lean MVP (2026-11-27): Binance Spot BTCUSDT 4h candles are the sole external signal-history dependency; fresh Tabdeal BTCUSDT Spot REST depth and exchange metadata are the local execution gate.** Kraken is optional cross-validation only. Nobitex UDF history and capped Tabdeal recent-trade pages are excluded from the active MVP. The planned source order is:
 
 - **Binance Spot public market data:** first candidate for liquid-market OHLCV, trades/aggregate trades, order-book context and public historical files. The private repository already contains src/global-reference.js for a narrow Binance BTCUSDT context reference; it is not a complete multi-source discovery pipeline.
 - **Kraken Spot public REST/WebSocket:** independent OHLC, trades and order-book source for cross-validation and resilience.
@@ -50,7 +50,7 @@ Before relying on any provider, verify official terms, no-key availability, quot
 
 The intended pipeline is:
 
-**International public feeds → normalized, quality-checked history → candidate signal discovery → local Tabdeal Spot confirmation → forward Paper → separately reviewed live gate**
+**Binance Spot BTCUSDT 4h candles → fixed EMA20/EMA50 signal → fresh Tabdeal BTCUSDT Spot order book/market rules → deterministic risk plan → forward Paper → separately reviewed live gate**
 
 A foreign venue's price is never an executable Tabdeal price. Compare like-for-like symbols and quote assets, align timestamps, quantify cross-venue basis/latency/liquidity divergence, and confirm the signal with a fresh Tabdeal Spot book, local fee schedule, minimum order constraints and verified quote units. Do not silently convert USD/USDT/IRT/RIAL/TOMAN. If any required local fact is unresolved, the result is WAIT/no-trade.
 
