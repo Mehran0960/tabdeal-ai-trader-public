@@ -132,7 +132,8 @@ test("does not equate an unclassified HTTP 404 with an order-not-found API respo
   });
   assert.equal(report.status,"ACCOUNT_AND_OPEN_ORDERS_OK_ORDER_LOOKUP_FAILED");
   assert.equal(report.orderLookupRead.ok,false);
-  assert.equal(report.orderLookupRead.result,"unclassified_order_lookup_404");\n  assert.equal(report.orderLookupRead.apiErrorCode,1204);
+  assert.equal(report.orderLookupRead.result,"unclassified_order_lookup_404");
+  assert.equal(report.orderLookupRead.apiErrorCode,1204);
 });
 
 test("preserves endpoint failures without logging provider message bodies",async()=>{
