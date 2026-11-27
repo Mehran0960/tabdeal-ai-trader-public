@@ -217,7 +217,13 @@ export function evaluateTabdealMvpShadow({
       report.trend.state = "DOWN_TREND";
     }
   } catch (error) {
-    report.data = {status: "invalid_or_stale", errorCode: errorCode(error, "kraken_history_invalid")};
+    const safeMessage = String(error?.message || "").slice(0, 120);
+    report.data = {
+      status: "invalid_or_stale",
+      errorCode: errorCode(error, "kraken_history_invalid"),
+      errorType: String(error?.name || "Error").slice(0, 40),
+      errorDetail: /^[A-Za-z0-9 _:-]+$/.test(safeMessage) ? safeMessage : "normalization_failed"
+    };
   }
   try {
     const market = normalizeTabdealMarket(tabdealExchangeInfo);
