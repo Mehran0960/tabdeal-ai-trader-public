@@ -107,7 +107,7 @@ test("never repeats an uncertain POST; it reconciles once by client order ID", a
       if (options.method === "POST") throw new Error("simulated network timeout");
       lookupCount++;
       if (lookupCount === 1) {
-        return new Response(JSON.stringify({code: -2013, msg: "Order does not exist"}), {
+        return new Response(JSON.stringify({code: 1204, msg: "Order not found"}), {
           status: 404, headers: {"content-type": "application/json"}
         });
       }
@@ -129,6 +129,55 @@ test("never repeats an uncertain POST; it reconciles once by client order ID", a
   assert.equal(result.status, "reconciled_after_uncertain_submit");
   assert.equal(result.order.orderId, "77");
   assert.deepEqual(calls.map(x => x.method), ["GET", "POST", "GET"]);
+});
+
+test("accepts only documented Tabdeal order-not-found code 1204 as an empty pre-submit lookup", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({code: 1204, msg: "Order not found"}), {
+        status: 404, headers: {"content-type": "application/json"}
+      });
+    }
+  });
+  const result = await client.getOrder({symbol: "BTCUSDT", clientOrderId: "paper-no-order-1204"});
+  assert.equal(result, null);
+  assert.deepEqual(calls, ["GET"]);
+});
+
+test("halts before POST on an unrelated 404 code from the order lookup endpoint", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials,
+    liveTradingEnabled: true,
+    killSwitch: false,
+    explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100,
+    portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({code: 1217, msg: "Method not allowed"}), {
+        status: 404, headers: {"content-type": "application/json"}
+      });
+    }
+  });
+  const result = await client.submitLimitOrder({
+    symbol: "BTCUSDT", side: "BUY", quantity: "0.001", price: "65000",
+    clientOrderId: "paper-unrelated-404",
+    riskPlan: {
+      approved: true, quantity: 0.001, notional: 65,
+      assumptions: {leverage: false, shorting: false}
+    }
+  });
+  assert.equal(result.status, "pre_submit_lookup_failed_halt");
+  assert.deepEqual(calls, ["GET"]);
 });
 
 test("does not create a duplicate when the client order ID already exists", async () => {
@@ -342,6 +391,28 @@ test("rejects unsafe OCO price relationships, duplicate IDs and ambiguous lookup
   }), /exactly_one_id_required/);
 });
 
+test("halts before OCO POST on an unrelated 404; only code 1205 means OCO list not found", async () => {
+  const calls = [];
+  const client = createTabdealSpotExecutionClient({
+    ...credentials, liveTradingEnabled: true, killSwitch: false, explicitOwnerApproval: true,
+    maxOrderNotionalQuote: 100, portfolioRiskChecksPassed: true,
+    fetchImpl: async (_url, options) => {
+      calls.push(options.method);
+      return new Response(JSON.stringify({code: 1217, msg: "Method not allowed"}), {
+        status: 404, headers: {"content-type": "application/json"}
+      });
+    }
+  });
+  const result = await client.submitOcoExit({
+    symbol: "BTCUSDT", quantity: "0.001", price: "68000", stopPrice: "63000",
+    stopLimitPrice: "62900", listClientOrderId: "oco-unrelated-404",
+    limitClientOrderId: "oco-unrelated-limit", stopClientOrderId: "oco-unrelated-stop",
+    riskPlan: {approved: true, quantity: 0.001, notional: 68, assumptions: {leverage: false, shorting: false}}
+  });
+  assert.equal(result.status, "pre_submit_oco_lookup_failed_halt");
+  assert.deepEqual(calls, ["GET"]);
+});
+
 test("OCO submission stays closed by default and makes no network request", async () => {
   let calls = 0;
   const client = createTabdealSpotExecutionClient({
@@ -363,7 +434,7 @@ test("OCO submission reconciles before posting and never repeats an uncertain PO
     maxOrderNotionalQuote: 100, portfolioRiskChecksPassed: true,
     fetchImpl: async (url, options) => {
       calls.push({url: String(url), method: options.method});
-      if (options.method === "GET") return new Response(JSON.stringify({code: -2013, msg: "not found"}), {status: 404});
+      if (options.method === "GET") return new Response(JSON.stringify({code: 1205, msg: "OCO order not found"}), {status: 404});
       if (options.method === "POST") throw new Error("simulated timeout");
       throw new Error("unexpected_method");
     }
@@ -426,7 +497,7 @@ test("OCO response is reconciled from the exchange's two child-order records", a
     maxOrderNotionalQuote: 100, portfolioRiskChecksPassed: true,
     fetchImpl: async (_url, options) => {
       calls.push(options.method);
-      if (options.method === "GET") return new Response(JSON.stringify({code: -2013, msg: "not found"}), {status: 404});
+      if (options.method === "GET") return new Response(JSON.stringify({code: 1205, msg: "OCO order not found"}), {status: 404});
       return new Response(JSON.stringify({
         orderListId: 20, contingencyType: "OCO", listStatusType: "EXEC_STARTED",
         listOrderStatus: "EXECUTING", listClientOrderId: "oco-list-success", symbol: "BTCUSDT",

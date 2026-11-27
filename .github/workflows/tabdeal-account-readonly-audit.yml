@@ -1,9 +1,9 @@
-name: Tabdeal read-only account and open-orders checks (order lookup separately reported)
+name: Tabdeal read-only account, open-orders and documented order-lookup checks
 
 on:
   push:
     branches:
-      - ops/tabdeal-readonly-audit-404-classification-20261127
+      - ops/tabdeal-order-lookup-1204-20261127
     paths:
       - ".github/workflows/tabdeal-account-readonly-audit.yml"
       - "src/tabdeal-account-read-auth.js"
