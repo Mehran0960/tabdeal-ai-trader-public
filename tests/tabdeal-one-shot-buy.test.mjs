@@ -5,6 +5,7 @@ import {
   ONE_SHOT_SYMBOL,
   ONE_SHOT_QUOTE_AMOUNT,
   runTabdealOneShotBuy,
+  claimOneShotExecutionLock,
   safeOneShotSummary
 } from "../scripts/tabdeal-one-shot-buy.mjs";
 
@@ -82,14 +83,17 @@ function makeFetch({
   postStatus = 200,
   postBody = filledOrder(),
   postThrows = false,
-  recoveredOrder = null
+  recoveredOrder = null,
+  recoverAfterPost = false
 } = {}) {
   const calls = [];
+  let postAttempted = false;
   const fetchImpl = async (input, init = {}) => {
     const url = new URL(String(input));
     const method = String(init.method || "GET").toUpperCase();
     calls.push({url, method, init});
     if (method === "POST") {
+      postAttempted = true;
       if (postThrows) throw new Error("simulated network uncertainty");
       return jsonResponse(postBody, postStatus);
     }
@@ -98,7 +102,7 @@ function makeFetch({
     if (url.pathname.endsWith("/account")) return jsonResponse(account);
     if (url.pathname.endsWith("/openOrders")) return jsonResponse(openOrders);
     if (url.pathname.endsWith("/order")) {
-      if (recoveredOrder) return jsonResponse(recoveredOrder);
+      if (recoveredOrder && (!recoverAfterPost || postAttempted)) return jsonResponse(recoveredOrder);
       return jsonResponse(priorOrderBody, priorOrderStatus);
     }
     throw new Error("unexpected_test_request " + method + " " + url.pathname);
@@ -117,6 +121,7 @@ function signedBodyParams(call) {
 test("requires explicit manual workflow confirmation before any network call", async () => {
   const {fetchImpl, calls} = makeFetch();
   const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
     apiKey, apiSecret, confirm: false, runId: "12345", fetchImpl
   });
   assert.equal(report.result, "explicit_workflow_confirmation_missing");
@@ -242,6 +247,55 @@ test("reuses the same client order ID on rerun and does not duplicate a prior or
   assert.equal(report.result, "existing_order_reconciled_no_resubmit");
   assert.equal(report.orderSubmitted, false);
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
+});
+
+
+test("does not submit when the permanent one-shot lock already exists", async () => {
+  const {fetchImpl, calls} = makeFetch();
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: false, result: "one_shot_already_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "one_shot_already_claimed");
+  assert.equal(report.orderSubmitted, false);
+  assert.equal(calls.filter(call => call.method === "POST").length, 0);
+});
+
+test("reconciles an HTTP 5xx by client ID without repeating POST", async () => {
+  const {fetchImpl, calls} = makeFetch({
+    postStatus: 500,
+    postBody: {message: "server error"},
+    recoveredOrder: filledOrder(),
+    recoverAfterPost: true
+  });
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "reconciled_after_server_error");
+  assert.equal(report.orderSubmitted, true);
+  assert.equal(report.order.status, "FILLED");
+  assert.equal(calls.filter(call => call.method === "POST").length, 1);
+});
+
+test("atomically claims a permanent GitHub ref before the only order POST", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({url: String(url), method: init.method});
+    if (init.method === "GET") return new Response("not found", {status: 404});
+    if (init.method === "POST") return new Response(JSON.stringify({ref: "refs/tags/tabdeal-one-shot-1usdt-20261127"}), {status: 201});
+    throw new Error("unexpected method");
+  };
+  const result = await claimOneShotExecutionLock({
+    token: "unit-test-token",
+    repository: "owner/repo",
+    commitSha: "a".repeat(40),
+    fetchImpl
+  });
+  assert.equal(result.claimed, true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].method, "GET");
+  assert.equal(calls[1].method, "POST");
 });
 
 test("safe summary never exposes API credentials", async () => {
