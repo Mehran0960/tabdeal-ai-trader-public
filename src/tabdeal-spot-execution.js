@@ -180,11 +180,17 @@ export function createTabdealSpotExecutionClient({
   explicitOwnerApproval = TABDEAL_SPOT_EXECUTION_DEFAULTS.explicitOwnerApproval,
   allowedSymbols = TABDEAL_SPOT_EXECUTION_DEFAULTS.allowedSymbols,
   receiveWindowMs = TABDEAL_SPOT_EXECUTION_DEFAULTS.receiveWindowMs,
+  maxOrderNotionalQuote = 0,
+  portfolioRiskChecksPassed = false,
   timeoutMs = 8_000
 } = {}) {
   const assertLiveGate = () => {
     if (liveTradingEnabled !== true || killSwitch !== false || explicitOwnerApproval !== true) {
       fail("tabdeal_live_execution_gate_closed");
+    }
+    if (portfolioRiskChecksPassed !== true ||
+        !Number.isFinite(Number(maxOrderNotionalQuote)) || Number(maxOrderNotionalQuote) <= 0) {
+      fail("tabdeal_portfolio_risk_cap_missing");
     }
     if (typeof fetchImpl !== "function") fail("tabdeal_fetch_unavailable");
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
@@ -208,6 +214,16 @@ export function createTabdealSpotExecutionClient({
   return Object.freeze({
     async submitLimitOrder(intent) {
       assertLiveGate();
+      if (!record(intent?.riskPlan) || intent.riskPlan.approved !== true ||
+          !Number.isFinite(Number(intent.riskPlan.quantity)) ||
+          !Number.isFinite(Number(intent.riskPlan.notional)) ||
+          Number(intent.riskPlan.quantity) <= 0 ||
+          Number(intent.riskPlan.quantity) !== Number(intent.quantity) ||
+          Number(intent.riskPlan.notional) > Number(maxOrderNotionalQuote) ||
+          intent.riskPlan.assumptions?.leverage !== false ||
+          intent.riskPlan.assumptions?.shorting !== false) {
+        fail("tabdeal_risk_plan_invalid_or_over_cap");
+      }
       const request = await buildTabdealLimitOrderRequest({
         ...intent, apiKey, apiSecret, allowedSymbols, receiveWindowMs
       });
