@@ -65,6 +65,16 @@ test("entry plan applies 25 bps spread/depth, real fee, risk budget and minimum 
  assert.equal(result.exchangeOrderCreated,false);
 });
 
+test("entry rejects one-sided depth even when aggregate depth exceeds the minimum",()=>{
+ const oneSided={bids:[["99.9","20000000"]],asks:[["100","1000"],["100.1","1000"]]};
+ const result=createPaperEntryPlan({candidate,analysis,portfolio,book:oneSided,
+  orderbookLastUpdateMs:Date.now(),nowMs:Date.now()});
+ assert.equal(result.approved,false);
+ assert.equal(result.reason,"two_sided_depth_gate_failed");
+ assert.equal(result.liveTradingEnabled,false);
+ assert.equal(result.exchangeOrderCreated,false);
+});
+
 test("entry plan fails closed for stale data, wide spread or disabled portfolio",()=>{
  const book={bids:[["99","10000000"]],asks:[["101","10000000"]]};
  assert.equal(createPaperEntryPlan({candidate,analysis,portfolio,book,
