@@ -55,7 +55,7 @@ test("local indicator engine accepts a complete 240-minute window with explicit 
   assert.equal(result.dataQuality.actualBars,240);
   assert.equal(result.dataQuality.noTradeMinutes240m,48);
   assert.equal(result.dataQuality.materialGapCount,0);
-  assert.equal(result.indicators.fiveMinuteBars,47);
+  assert.equal(result.indicators.fiveMinuteBars,48);
   assert.equal(TABDEAL_LOCAL_PAPER_STRATEGY,"ema9-21-50-rsi14-macd-5m-v1");
   assert.equal(TABDEAL_LOCAL_PAPER_NOTIONAL_USDT,50);
 });
