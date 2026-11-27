@@ -126,6 +126,7 @@ async function main(){
           id,code:String(parsed.error.code??"subscription_rejected"),
           message:String(parsed.error.msg??"").slice(0,120)
         };
+        stats.subscriptionRejections++;
         subscriptionErrors.push(error);
         waiter?.resolve({ok:false,error});
       }else if(parsed.result===null){
@@ -187,6 +188,7 @@ async function main(){
         sent++;
       }catch{
         const result={ok:false,error:{id,code:"subscription_send_failed"}};
+        ackWaiters.get(id)?.resolve(result);
         if(batch.symbols.length>1){
           const half=Math.ceil(batch.symbols.length/2);
           queue.unshift(
