@@ -8,7 +8,8 @@ import {
   createTabdealLiveWatchState,
   updateTabdealLiveMinuteBar,
   evaluateTabdealRelativeWatch,
-  summarizeTabdealLiveWatch
+  summarizeTabdealLiveWatch,
+  resolveTabdealSocketAckWaiters
 } from "../src/tabdeal-live-market-watch.js";
 
 const NOW=Date.parse("2026-11-27T18:00:00.000Z");
@@ -238,4 +239,23 @@ test("summarizes live coverage and guarantees that the watcher itself places no 
   assert.equal(report.safety.exchangeOrdersPlaced,0);
   assert.equal(report.safety.liveTradingEnabled,false);
   assert.equal(report.source.bookSemantics,"unverified_snapshot_or_delta");
+});
+
+
+test("resolves only pending WebSocket acknowledgements belonging to the closed socket",()=>{
+  const oldSocket={name:"old"};
+  const currentSocket={name:"current"};
+  const waiters=new Map();
+  const results=[];
+  waiters.set(1001,{ws:oldSocket,resolve:value=>{results.push([1001,value]);waiters.delete(1001);}});
+  waiters.set(1002,{ws:currentSocket,resolve:value=>{results.push([1002,value]);waiters.delete(1002);}});
+  waiters.set(1003,{ws:oldSocket,resolve:value=>{results.push([1003,value]);waiters.delete(1003);}});
+  const resolved=resolveTabdealSocketAckWaiters(waiters,oldSocket,"websocket_disconnected");
+  assert.equal(resolved,2);
+  assert.deepEqual(results.map(row=>row[0]),[1001,1003]);
+  assert.deepEqual(results[0][1],{ok:false,error:{id:1001,code:"websocket_disconnected"}});
+  assert.equal(waiters.size,1);
+  assert.equal(waiters.has(1002),true);
+  assert.equal(resolveTabdealSocketAckWaiters(waiters,currentSocket),1);
+  assert.equal(waiters.size,0);
 });
