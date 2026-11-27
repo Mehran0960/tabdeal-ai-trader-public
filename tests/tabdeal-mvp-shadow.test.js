@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   evaluateTabdealMvpShadow, buildShadowHealth, runTabdealLocalPaperCapture,
   updateTabdealLocalPaperMarkouts, aggregateTabdealTradeCandles,
-  buildTabdealRecentTradeCandles, TABDEAL_PAPER_WATCHLIST
+  buildTabdealRecentTradeCandles, TABDEAL_PAPER_WATCHLIST,
+  pollTabdealSpotTrades
 } from "../workers/tabdeal-mvp-shadow/index.js";
 
 const interval = 4 * 60 * 60 * 1000;
@@ -397,4 +398,31 @@ test("paper capture records the requested symbol independently",async()=>{
   const insert=writes.find(row=>row.sql.startsWith("INSERT OR IGNORE INTO tabdeal_local_paper_signals"));
   assert.ok(insert);
   assert.equal(insert.params[0],"ETHUSDT");
+});
+
+
+test("no-new-trades polling updates only the selected symbol state",async()=>{
+  const now=Date.parse("2026-11-27T12:00:00.000Z");
+  const state={last_trade_id:"123",last_trade_time_ms:now-30_000,
+    eligible_from_minute_ms:now-60_000,continuity_epoch:0,gap_count:0,
+    last_successful_poll_at_ms:now-60_000,last_gap_at_ms:null};
+  const writes=[];
+  const db={prepare(sql){let params=[];const q={
+    bind(...values){params=values;return q;},
+    async first(){if(sql.includes("SELECT * FROM tabdeal_spot_trade_state"))return state;return null;},
+    async run(){
+      writes.push({sql,params});
+      if(sql.includes("SET lease_token=?"))return {meta:{changes:1}};
+      return {meta:{changes:1}};
+    },
+    async all(){return {results:[]};}
+  };return q;},async batch(){return [];}};
+  const result=await pollTabdealSpotTrades({DB:db},{
+    symbol:"ETHUSDT",now:()=>now,
+    fetchImpl:async()=>({ok:true,json:async()=>[]})
+  });
+  assert.equal(result.status,"no_new_trades");
+  const stateWrite=writes.find(row=>row.sql.includes("SET last_successful_poll_at_ms"));
+  assert.ok(stateWrite);
+  assert.equal(stateWrite.params.at(-2),"ETHUSDT");
 });
