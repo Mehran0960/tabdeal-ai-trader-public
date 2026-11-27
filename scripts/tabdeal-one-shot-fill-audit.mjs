@@ -44,9 +44,9 @@ function cleanTrade(row) {
   if (!isRecord(row)) return null;
   const price = row.price === undefined ? null : String(row.price);
   const qty = row.qty === undefined ? (row.quantity === undefined ? null : String(row.quantity)) : String(row.qty);
-  const quote = row.quoteQty === undefined && row.quoteQuantity === undefined
-    ? (price && qty ? String(Number(price) * Number(qty)) : null)
-    : String(row.quoteQty ?? row.quoteQuantity);
+  // Tabdeal's raw quoteQty has been observed inconsistent with the order's
+  // cumulative quote quantity. Derive quote notional from execution price × qty.
+  const quote = price && qty ? String(Number(price) * Number(qty)) : null;
   return {
     tradeId: row.id === undefined ? null : String(row.id),
     orderId: row.orderId === undefined ? null : String(row.orderId),
