@@ -31,15 +31,6 @@ function json(data, status = 200) {
     }
   });
 }
-export function isAuthorizedShadowScanToken(expected, supplied) {
-  if (typeof expected !== "string" || !expected ||
-      typeof supplied !== "string" || supplied.length !== expected.length) return false;
-  let difference = 0;
-  for (let index = 0; index < expected.length; index++) {
-    difference |= expected.charCodeAt(index) ^ supplied.charCodeAt(index);
-  }
-  return difference === 0;
-}
 async function getJson(url, timeoutMs = MAX_BOOK_FETCH_MS) {
   const response = await fetch(url, {
     method: "GET",
@@ -286,16 +277,21 @@ async function runScan(env, fetchImpl = fetch, now = () => Date.now()) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/_internal/scan") {
+    if (url.pathname === "/_internal/scan-once") {
       if (request.method !== "POST") return json({error: "method_not_allowed"}, 405);
-      const supplied = request.headers.get("x-shadow-scan-token") || "";
-      if (!isAuthorizedShadowScanToken(env.MVP_SCAN_TOKEN, supplied)) {
-        return json({error: "unauthorized"}, 401);
+      // One atomic D1 claim permits exactly one bootstrap request. After the
+      // smoke test, this route is removed from the deployed Worker.
+      const claim = await env.DB.prepare(
+        "INSERT OR IGNORE INTO shadow_bootstrap_once (id,claimed_at) VALUES (1,?)"
+      ).bind(new Date().toISOString()).run();
+      if (Number(claim.meta?.changes) !== 1) {
+        return json({error: "bootstrap_scan_already_used"}, 409);
       }
       try {
         return json(await runScan(env));
       } catch {
-        console.error("shadow_scan_failed");
+        await env.DB.prepare("DELETE FROM shadow_bootstrap_once WHERE id=1").run().catch(() => {});
+        console.error("shadow_bootstrap_scan_failed");
         return json({error: "shadow_scan_failed"}, 500);
       }
     }
