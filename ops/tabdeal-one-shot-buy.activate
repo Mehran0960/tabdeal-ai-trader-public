@@ -6,3 +6,5 @@ Authorization: user-approved in conversation on 2026-11-27.
 No recurring trading; the permanent GitHub ref lock prevents a second execution.
 
 Retry activation after correcting exchangeInfo endpoint shape; earlier attempt stopped before any POST and did not claim the permanent lock.
+
+Automatic retry: prior attempts were stopped before POST because BTCUSDT does not allow quote-sized MARKET orders. The revised path uses a fee-reserved price-capped LIMIT order and will run only if live filters allow an order under the 1 USDT all-in ceiling.
