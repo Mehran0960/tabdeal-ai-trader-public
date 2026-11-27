@@ -220,6 +220,36 @@ test("blocks the LIMIT fallback when the venue minimum cannot fit under one USDT
   assert.equal(calls.filter(call => call.method === "POST").length, 0);
 });
 
+test("accepts a one-USDT notional after exact quote precision rounding, without exceeding one", async () => {
+  const highPrecisionInfo = validLimitExchangeInfo({minNotional: "1"});
+  highPrecisionInfo[0].filters = [
+    {filterType: "MIN_NOTIONAL", minNotional: "1.00000000", applyToMarket: false},
+    {filterType: "LOT_SIZE", minQty: "0.0000000000000001", maxQty: "100", stepSize: "0.0000000000000001"},
+    {filterType: "PRICE_FILTER", minPrice: "0.0000000000000001", maxPrice: "10000000", tickSize: "0.0000000000000001"}
+  ];
+  const {fetchImpl, calls} = makeFetch({
+    exchangeInfo: highPrecisionInfo,
+    postBody: {
+      ...filledOrder(),
+      price: "90045.0000000000000000",
+      origQty: "0.00001110500000000000",
+      executedQty: "0.00001110500000000000",
+      cummulativeQuoteQty: "1.00000000",
+      type: "LIMIT"
+    }
+  });
+  const report = await runTabdealOneShotBuy({
+    claimLock: async () => ({claimed: true, result: "test_lock_claimed"}),
+    apiKey, apiSecret, confirm: true, runId: "12345", fetchImpl
+  });
+  assert.equal(report.result, "order_filled_reconciled");
+  assert.equal(report.preflight.type, "LIMIT");
+  assert.equal(report.preflight.quoteBudget, ONE_SHOT_QUOTE_AMOUNT);
+  assert.equal(report.preflight.estimatedQuoteNotional, 1);
+  assert.ok(report.preflight.estimatedQuoteNotional <= 1);
+  assert.equal(calls.filter(call => call.method === "POST").length, 1);
+});
+
 test("handles high-precision venue tick and lot filters without floating-point rounding up", async () => {
   const highPrecisionInfo = validLimitExchangeInfo();
   highPrecisionInfo[0].filters = [
