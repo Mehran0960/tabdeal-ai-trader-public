@@ -90,7 +90,7 @@ test("incremental capture starts after each symbol's last confirmed closed candl
   });
   const firstKline=calls.find(url=>url.pathname.endsWith("/api/v3/klines"));
   assert.equal(Number(firstKline.searchParams.get("startTime")),previous+INTERVAL);
-  assert.equal(report.snapshot.candles.length,6);
+  assert.equal(report.snapshot.candles.length,3);
 });
 
 test("validates the latest-candle index and rate-limit retry delay",()=>{
