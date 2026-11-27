@@ -78,8 +78,8 @@ jobs:
             echo "mode=continuous" >> "$GITHUB_OUTPUT"
             echo "duration=335" >> "$GITHUB_OUTPUT"
           elif [ "$EVENT_NAME" = "push" ]; then
-            echo "mode=probe" >> "$GITHUB_OUTPUT"
-            echo "duration=3" >> "$GITHUB_OUTPUT"
+            echo "mode=continuous" >> "$GITHUB_OUTPUT"
+            echo "duration=335" >> "$GITHUB_OUTPUT"
           else
             echo "mode=$INPUT_MODE" >> "$GITHUB_OUTPUT"
             echo "duration=$INPUT_DURATION" >> "$GITHUB_OUTPUT"
