@@ -469,6 +469,7 @@ export function runRelativeAssetRotationResearch({rows,nowMs=Date.now()}={}) {
   const recommendation=selectRotationTarget(latestFeatures,null,0);
   const latestBooks=selectLatestTabdealBooks(rows,nowMs);
   const allBooksReady=ROTATION_SYMBOLS.every(symbol=>latestBooks[symbol]?.available===true);
+  const someBooksReady=ROTATION_SYMBOLS.some(symbol=>latestBooks[symbol]?.available===true);
   const signalTimeMs=normalized.latestOpenTimeMs;
   return {
     schemaVersion:1,reportType:"TABDEAL_RELATIVE_ASSET_ROTATION_RESEARCH",
@@ -510,9 +511,10 @@ export function runRelativeAssetRotationResearch({rows,nowMs=Date.now()}={}) {
     },
     localExecutionReadiness:{
       books:latestBooks,allFiveBooksReady:allBooksReady,
-      forwardPaperEligible:promotionPassed&&allBooksReady,
+      forwardPaperEligible:promotionPassed&&someBooksReady,
       reason:!promotionPassed?"historical_promotion_gate_not_passed":
-        !allBooksReady?"fresh_complete_tabdeal_local_books_with_top5_levels_not_ready":"ready_for_forward_paper_only"
+        !someBooksReady?"fresh_tabdeal_local_books_with_top5_levels_not_ready":
+          allBooksReady?"ready_for_forward_paper_only":"partial_books_ready_candidate_specific_gates_apply"
     },
     safety:{signalHistoryOnly:true,accountDataRead:false,privateCredentialsUsed:false,
       liveTradingEnabled:false,exchangeOrdersPlaced:0,fundsMoved:false,leverageUsed:false,shortSellingUsed:false}
@@ -543,6 +545,10 @@ function paperMarkToLiquidation(state,books) {
 function paperSell(state,symbol,book,nowMs,reason,events) {
   const quantity=Number(state.position?.quantity||0);
   if(!positive(quantity))return {ok:false,reason:"paper_position_missing"};
+  const step=Number(book.marketRules.stepSize);
+  const maxQty=Number(book.marketRules.maxQty);
+  if(!positive(step)||Math.abs(decimalFloorToStep(quantity,step)-quantity)>Math.max(1e-12,quantity*1e-8)||
+     (positive(maxQty)&&quantity>maxQty))return {ok:false,reason:"paper_sell_quantity_filter_mismatch"};
   const fill=walkPaperOrderbook({side:"sell",quantity,levels:book.bids,
     latencyBufferBps:ROTATION_POLICY.latencyBufferBps,
     maxSlippageBps:ROTATION_POLICY.maximumBookSlippageBps});
@@ -569,9 +575,11 @@ function paperBuy(state,symbol,book,nowMs,reason,events) {
     .filter(([price])=>price<=bestAsk*(1+ROTATION_POLICY.maximumBookSlippageBps/10_000))
     .reduce((sum,level)=>sum+level[1],0);
   const step=Number(book.marketRules.stepSize),minQty=Number(book.marketRules.minQty);
+  const maxQty=Number(book.marketRules.maxQty);
   const minNotional=Number(book.marketRules.minNotional);
   let quantity=decimalFloorToStep(
-    Math.min(cash/(bestAsk*(1+feeRate+ROTATION_POLICY.latencyBufferBps/10_000)),maxDepth*0.999),
+    Math.min(cash/(bestAsk*(1+feeRate+ROTATION_POLICY.latencyBufferBps/10_000)),
+      maxDepth*0.999,positive(maxQty)?maxQty:Number.POSITIVE_INFINITY),
     step
   );
   for(let attempt=0;attempt<5&&quantity>=minQty;attempt++){
@@ -642,7 +650,11 @@ export function applyRelativeRotationPaperTick({report,state,nowMs=Date.now(),ru
     current.events.push(...events);
     return {state:current,events,changed:true,reason:"paper_drawdown_kill_switch_triggered"};
   }
-  const featureAssets=report.latestSignal.assets||{};
+  const rawFeatureAssets=report.latestSignal.assets||{};
+  const featureAssets=Object.fromEntries(ROTATION_SYMBOLS.map(symbol=>[
+    symbol,books[symbol]?.available===true?rawFeatureAssets[symbol]:
+      record(rawFeatureAssets[symbol])?{...rawFeatureAssets[symbol],trendConfirmed:false}:null
+  ]));
   const elapsedBars=current.lastProcessedSignalOpenTimeMs
     ? Math.max(0,Math.floor((signalTime-current.lastProcessedSignalOpenTimeMs)/ROTATION_POLICY.intervalMs))
     : ROTATION_POLICY.minimumHoldBars;
@@ -663,6 +675,9 @@ export function applyRelativeRotationPaperTick({report,state,nowMs=Date.now(),ru
         current.lastEquityUsdt=current.cashBalance;
         current.events.push(...events);
         current.tradeCount+=events.length;
+        current.lastUpdatedAt=new Date(nowMs).toISOString();
+        current.lastRunId=String(runId);
+        current.lastRunAttempt=Number(runAttempt);
         return {state:current,events,changed:true,reason:"paper_rotated_to_cash_after_buy_failure_"+bought.reason};
       }
     }
