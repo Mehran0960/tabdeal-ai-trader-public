@@ -1,6 +1,10 @@
 name: Tabdeal one-shot BTCUSDT Spot buy (maximum 1 USDT)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/tabdeal-one-shot-buy.activate"
   workflow_dispatch:
     inputs:
       confirm_one_shot_buy:
@@ -10,7 +14,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: tabdeal-one-shot-live-buy
@@ -18,7 +22,7 @@ concurrency:
 
 jobs:
   one-shot-buy:
-    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main' && inputs.confirm_one_shot_buy == true
+    if: github.repository == 'Mehran0960/tabdeal-ai-trader-public' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.confirm_one_shot_buy == true))
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -36,4 +40,5 @@ jobs:
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
           TABDEAL_ONE_SHOT_CONFIRM: ${{ inputs.confirm_one_shot_buy }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/tabdeal-one-shot-buy.mjs
