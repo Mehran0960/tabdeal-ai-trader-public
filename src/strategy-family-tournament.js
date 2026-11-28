@@ -71,7 +71,8 @@ function eligibleBase(base) {
 export function normalizeStrategyTournamentHistory(rows,{nowMs=Date.now(),symbols=null}={}) {
   if(!Array.isArray(rows)||!Number.isSafeInteger(nowMs))fail("tournament_history_or_clock_invalid");
   const bySymbol=new Map();
-  let ignoredRecordCount=0,duplicateCount=0;
+  let ignoredRecordCount=0,duplicateCount=0,excludedIncompleteCandleCount=0;
+  const excludedIncompleteBySymbol={};
   for(const row of rows){
     if(!isRecord(row))fail("tournament_history_record_invalid");
     if(row.recordType!=="candle"||row.provider!=="binance_spot"||
@@ -93,13 +94,21 @@ export function normalizeStrategyTournamentHistory(rows,{nowMs=Date.now(),symbol
     const expectedClose=candle.openTimeMs+INTERVAL_MS-1;
     if(!Number.isSafeInteger(candle.openTimeMs)||!Number.isSafeInteger(candle.closeTimeMs)||
        candle.openTimeMs<=0||candle.openTimeMs%INTERVAL_MS!==0||
-       candle.closeTimeMs!==expectedClose||candle.closeTimeMs>=nowMs||
+       candle.closeTimeMs<candle.openTimeMs||candle.closeTimeMs>expectedClose||
+       candle.closeTimeMs>=nowMs||
        ![candle.open,candle.high,candle.low,candle.close].every(positive)||
        !finite(candle.baseVolume)||candle.baseVolume<0||
        !Number.isSafeInteger(candle.tradeCount)||candle.tradeCount<0||
        candle.high<Math.max(candle.open,candle.close,candle.low)||
        candle.low>Math.min(candle.open,candle.close,candle.high)){
       fail("tournament_candle_invalid_"+symbol);
+    }
+    // Exchange listing/status transitions can produce an early-closed interval.
+    // Exclude it and preserve the gap; never pad or treat it as a complete 4h bar.
+    if(candle.closeTimeMs<expectedClose){
+      excludedIncompleteCandleCount++;
+      excludedIncompleteBySymbol[symbol]=(excludedIncompleteBySymbol[symbol]||0)+1;
+      continue;
     }
     if(!bySymbol.has(symbol))bySymbol.set(symbol,new Map());
     const map=bySymbol.get(symbol),prior=map.get(candle.openTimeMs);
@@ -126,7 +135,7 @@ export function normalizeStrategyTournamentHistory(rows,{nowMs=Date.now(),symbol
   const selectedSymbols=ranked.map(row=>row.symbol);
   if(selectedSymbols.length<STRATEGY_TOURNAMENT_POLICY.minimumSymbols){
     return {available:false,reason:"tournament_too_few_eligible_symbols",selectedSymbols,
-      ignoredRecordCount,duplicateCount,
+      ignoredRecordCount,duplicateCount,excludedIncompleteCandleCount,excludedIncompleteBySymbol,
       perSymbolBars:Object.fromEntries([...bySymbol].map(([symbol,map])=>[symbol,map.size]))};
   }
   const timeSets=selectedSymbols.map(symbol=>new Set(bySymbol.get(symbol).keys()));
@@ -160,7 +169,7 @@ export function normalizeStrategyTournamentHistory(rows,{nowMs=Date.now(),symbol
   return {available:true,symbols:selectedSymbols,candlesBySymbol,
     alignedBars:common.length,latestContiguousBars:latest.length,
     latestClosedAt:new Date(latestClosedAtMs).toISOString(),latestAgeMs,
-    ignoredRecordCount,duplicateCount,
+    ignoredRecordCount,duplicateCount,excludedIncompleteCandleCount,excludedIncompleteBySymbol,
     perSymbolBars:Object.fromEntries(selectedSymbols.map(symbol=>[symbol,bySymbol.get(symbol).size]))};
 }
 
@@ -450,6 +459,8 @@ export function runStrategyFamilyTournament({rows,nowMs=Date.now(),symbols=null,
       alignedBars:history.alignedBars,latestContiguousBars:history.latestContiguousBars,
       latestClosedAt:history.latestClosedAt,latestAgeMs:history.latestAgeMs,
       ignoredRecordCount:history.ignoredRecordCount,duplicateCount:history.duplicateCount,
+      excludedIncompleteCandleCount:history.excludedIncompleteCandleCount,
+      excludedIncompleteBySymbol:history.excludedIncompleteBySymbol,
       splitIndex,oosBars:history.latestContiguousBars-splitIndex,
       split:"70% discovery/warmup, 30% fixed out-of-sample; parameters pre-registered"},
     policy:STRATEGY_TOURNAMENT_POLICY,costScenarios:STRATEGY_TOURNAMENT_COSTS,
