@@ -3,6 +3,7 @@ import {createHmac} from "node:crypto";
 import {appendFile} from "node:fs/promises";
 import {pathToFileURL} from "node:url";
 
+// Recheck signed Spot POST permission; the probe payload below is intentionally invalid and cannot represent a valid order.
 const API_BASE = "https://api1.tabdeal.org";
 export const TABDEAL_POST_PROBE_SYMBOL = "ZZZPROBE20261127";
 export const TABDEAL_POST_PROBE_CLIENT_ORDER_ID = "probe-invalid-no-order-20261127";
