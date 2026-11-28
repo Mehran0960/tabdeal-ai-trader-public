@@ -46,8 +46,8 @@ function json(data, status = 200) {
     }
   });
 }
-async function getJson(url, timeoutMs = MAX_BOOK_FETCH_MS) {
-  const response = await fetch(url, {
+async function getJson(url, timeoutMs = MAX_BOOK_FETCH_MS, fetchImpl = fetch) {
+  const response = await fetchImpl(url, {
     method: "GET",
     headers: {accept: "application/json"},
     signal: AbortSignal.timeout(timeoutMs)
@@ -1128,7 +1128,7 @@ async function readLatestPaperBotSignal(env, symbol) {
   ).bind(symbol, TABDEAL_LOCAL_PAPER_STRATEGY).first();
 }
 
-export async function runTabdealPaperBot(env, {nowMs = Date.now()} = {}) {
+export async function runTabdealPaperBot(env, {nowMs = Date.now(), fetchImpl = fetch} = {}) {
   const portfolioId = TABDEAL_PAPER_BOT_POLICY.portfolioId;
   const lockToken = crypto.randomUUID();
   const initialState = createTabdealPaperBotState({nowMs});
@@ -1168,7 +1168,7 @@ export async function runTabdealPaperBot(env, {nowMs = Date.now()} = {}) {
 
     let exchangeInfo = null;
     if (needed.size) {
-      exchangeInfo = await getJson(TABDEAL_API + "/exchangeInfo", 8_000);
+      exchangeInfo = await getJson(TABDEAL_API + "/exchangeInfo", 8_000, fetchImpl);
     }
 
     const signals = [];
@@ -1188,7 +1188,7 @@ export async function runTabdealPaperBot(env, {nowMs = Date.now()} = {}) {
       let bookObservedAtMs = 0;
       try {
         book = await getJson(TABDEAL_API + "/depth?symbol=" +
-          encodeURIComponent(symbol) + "&limit=100", 8_000);
+          encodeURIComponent(symbol) + "&limit=100", 8_000, fetchImpl);
         bookObservedAtMs = Date.now();
       } catch (error) {
         sourceErrors[symbol] = errorCode(error, "paper_bot_local_book_unavailable");
