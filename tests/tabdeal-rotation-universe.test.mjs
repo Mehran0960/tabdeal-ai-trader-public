@@ -124,11 +124,21 @@ test("supports Binance permissionSets after the legacy permissions field is reti
   assert.equal(result.excluded.binanceInactiveOrNonSpot, 0);
 });
 
-test("rejects symbols whose permissionSets require a trade-group permission in addition to Spot", () => {
+test("keeps Spot-enabled public market data when an additional Binance account group is required", () => {
   const input = fixture();
   const row = input.binanceExchangeInfo.symbols.find(item => item.symbol === "ETHUSDT");
   row.permissions = [];
   row.permissionSets = [["SPOT"], ["TRD_GRP_999"]];
+  const result = buildTabdealRotationUniverse(input);
+  assert.ok(result.markets.some(row => row.symbol === "ETHUSDT"));
+  assert.equal(result.excluded.binanceInactiveOrNonSpot, 0);
+});
+
+test("rejects Binance metadata with no Spot permission set", () => {
+  const input = fixture();
+  const row = input.binanceExchangeInfo.symbols.find(item => item.symbol === "ETHUSDT");
+  row.permissions = [];
+  row.permissionSets = [["MARGIN"], ["TRD_GRP_999"]];
   const result = buildTabdealRotationUniverse(input);
   assert.ok(!result.markets.some(row => row.symbol === "ETHUSDT"));
   assert.equal(result.excluded.binanceInactiveOrNonSpot, 1);
