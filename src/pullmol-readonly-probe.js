@@ -106,7 +106,7 @@ export function summarizePullmolResponse({url, status, contentType, payload, ela
     };
   }
 
-  if (path === "/signals") {
+  if (path.startsWith("/signals/")) {
     const rows = eventRows(payload);
     const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
     const hasEntry = rows.some(row => row.entry !== undefined || row.entry_price !== undefined);
@@ -129,7 +129,7 @@ export function summarizePullmolResponse({url, status, contentType, payload, ela
     };
   }
 
-  if (path === "/analysis") {
+  if (path.startsWith("/analysis/")) {
     return {
       ...base,
       recommendationPresent: typeof payload?.recommendation === "string",
