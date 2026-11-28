@@ -16,9 +16,9 @@ The result is sorted by Binance quote turnover for inspection. This volume is on
 
 ## Coverage safety
 
-The initial research safety cap is 200 markets. It is not a hidden truncation: if more than 200 symbols qualify, the report sets `status=capacity_exceeded`, `coverageComplete=false`, and reports the number omitted. Downstream strategy research must refuse to make a complete-universe claim or authorize a trade from a capped result.
+The initial research safety cap is 300 markets. It is not a hidden truncation: if more than 300 symbols qualify, the report sets `status=capacity_exceeded`, `coverageComplete=false`, and reports the number omitted. Downstream strategy research must refuse to make a complete-universe claim or authorize a trade from a capped result.
 
-The 200-market ceiling is a practical first-stage bound for historical data and local-book collection. It should be raised only after measured API weight, runner time, data storage and local book coverage demonstrate that the full eligible intersection can be collected without gaps or rate-limit pressure.
+The 300-market ceiling is a practical first-stage bound for historical data and local-book collection. It should be raised only after measured API weight, runner time, data storage and local book coverage demonstrate that the full eligible intersection can be collected without gaps or rate-limit pressure.
 
 ## Historical coverage
 

@@ -108,7 +108,7 @@ test("rejects malformed inputs and unsafe policies", () => {
 
 test("uses a liquidity floor rather than assuming a fixed five-asset universe", () => {
   assert.equal(TABDEAL_ROTATION_UNIVERSE_POLICY.minimumBinanceQuoteVolumeUsdt, 250_000);
-  assert.equal(TABDEAL_ROTATION_UNIVERSE_POLICY.maximumResearchMarkets, 200);
+  assert.equal(TABDEAL_ROTATION_UNIVERSE_POLICY.maximumResearchMarkets, 300);
 });
 
 test("supports Binance permissionSets after the legacy permissions field is retired", () => {

@@ -2,7 +2,7 @@ export const TABDEAL_ROTATION_UNIVERSE_POLICY = Object.freeze({
   quoteAsset: "USDT",
   minimumBinanceQuoteVolumeUsdt: 250_000,
   minimumBinanceTradeCount24h: 500,
-  maximumResearchMarkets: 200,
+  maximumResearchMarkets: 300,
   excludedBaseAssets: Object.freeze([
     "USDT", "USDC", "BUSD", "FDUSD", "TUSD", "USDP", "DAI", "USDE",
     "USDD", "UST", "USTC", "EUR", "TRY", "BRL", "GBP", "AUD"
