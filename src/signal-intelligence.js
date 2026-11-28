@@ -311,7 +311,9 @@ export function scoreSignalSource(records, {minimumResolvedTrades = 100, minimum
       noEntrySignals++;
       continue;
     }
-    const netR = Number(outcome?.netR);
+    const hasNetR = outcome?.netR !== null && outcome?.netR !== undefined &&
+      (typeof outcome.netR === "number" || typeof outcome.netR === "string");
+    const netR = hasNetR ? Number(outcome.netR) : Number.NaN;
     if (isRecord(outcome) && outcome.resolved === true && Number.isFinite(netR)) {
       const timestamp = parseInstant(record.firstSeenAt) ?? parseInstant(outcome.resolvedAt) ?? 0;
       trades.push({netR, timestamp});
