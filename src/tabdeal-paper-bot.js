@@ -149,7 +149,7 @@ function updateRiskState(state, equity, nowMs) {
 
 function makeEvent({symbol, side, quantity, price, notional, fee, reason, nowMs, candleOpenMs, realizedPnlUsdt = null}) {
   return {
-    eventId: [symbol, side, candleOpenMs, Math.trunc(nowMs)].join(":"),
+    eventId: [symbol, side, candleOpenMs, reason].join(":"),
     symbol, side, quantity, averagePrice: price, quoteNotional: notional,
     feePaid: fee, reason, eventAtMs: nowMs, candleOpenMs, realizedPnlUsdt,
     execution: "PAPER_ONLY_LOCAL_TABDEAL_ORDERBOOK",
