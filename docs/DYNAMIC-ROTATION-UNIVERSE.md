@@ -7,7 +7,7 @@ This module establishes the first dynamic universe boundary for research expansi
 A symbol is admitted only when all of the following hold:
 
 - It is an active Spot market quoted in USDT on Tabdeal.
-- The exact same symbol is an active Spot USDT market on Binance.
+- The exact same symbol is an active Spot USDT market on Binance. Binance permission sets are interpreted using the documented OR-within-set / AND-across-sets rule; a Spot permission set qualifies public market-data discovery even if an additional account group would be required to place a Binance order. Binance is not the execution venue.
 - Binance 24-hour quote turnover is at least 250,000 USDT and the 24-hour trade count is at least 500.
 - Tabdeal provides valid LOT_SIZE, minimum-notional and PRICE_FILTER rules.
 - The base asset is not a stablecoin/fiat quote proxy or a leveraged-token suffix.
