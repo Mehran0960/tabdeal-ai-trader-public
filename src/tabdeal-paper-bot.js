@@ -253,12 +253,6 @@ export function evaluateTabdealPaperBotTick({state, signals, nowMs = Date.now()}
       reason: signalCheck.reason,
       liveTradingEnabled: false, exchangeOrdersCreated: 0, fundsMoved: false
     };
-    const gate = bookGate(input, nowMs);
-    if (!gate.ok) return {
-      state: current, events, changed: false, action: "HOLD",
-      reason: gate.reason,
-      liveTradingEnabled: false, exchangeOrdersCreated: 0, fundsMoved: false
-    };
 
     const position = current.position;
     const candle = input.candle;
@@ -275,6 +269,13 @@ export function evaluateTabdealPaperBotTick({state, signals, nowMs = Date.now()}
       : trendLost ? "trend_alignment_lost"
       : null;
 
+    const gate = bookGate(input, nowMs);
+    if (!gate.ok) return {
+      state: current, events, changed: false,
+      action: exitReason ? "EXIT_PENDING" : "HOLD",
+      reason: exitReason ? "exit_pending_" + exitReason + "_" + gate.reason : gate.reason,
+      liveTradingEnabled: false, exchangeOrdersCreated: 0, fundsMoved: false
+    };
     const equity = paperEquity(current, {[position.symbol]: gate});
     const risk = updateRiskState(current, equity, nowMs);
     const finalReason = exitReason || (risk.halted ? risk.haltReason : null);
