@@ -76,7 +76,7 @@ function normalizeTargets(targets, side) {
     const price = positiveDecimal(target.price);
     if (!price) return null;
     const label = cleanString(target.label, 12) ?? `TP${index + 1}`;
-    if (!/^TP\d{1,2}$/.test(label)) return null;
+    if (label !== `TP${index + 1}`) return null;
     normalized.push({label, price});
   }
   const values = normalized.map(item => Number(item.price));
