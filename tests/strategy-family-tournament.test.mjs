@@ -155,7 +155,7 @@ test("excludes early-closed candle intervals without filling or fabricating a re
   assert.equal(history.available,true);
   assert.equal(history.excludedIncompleteCandleCount,1);
   assert.equal(history.excludedIncompleteBySymbol.BTCUSDT,1);
-  assert.equal(history.candlesBySymbol.BTCUSDT.length,899);
+  assert.equal(history.candlesBySymbol.BTCUSDT.length,499);
   assert.ok(!history.candlesBySymbol.BTCUSDT.some(row=>row.time===sample.openTimeMs));
 });
 
