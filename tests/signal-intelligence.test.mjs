@@ -185,3 +185,15 @@ test("source scoring treats missing realized R as unresolved, not a breakeven wi
   assert.equal(score.unresolvedSignals, 1);
   assert.equal(score.wins, 1);
 });
+
+
+test("source scoring excludes low-confidence quarantined observations", () => {
+  const score = scoreSignalSource([
+    {researchEligible: false, outcome: {resolved: true, netR: 99}},
+    {researchEligible: true, outcome: {resolved: true, netR: 1}}
+  ], {minimumResolvedTrades: 1});
+  assert.equal(score.signalsObserved, 2);
+  assert.equal(score.resolvedTrades, 1);
+  assert.equal(score.quarantinedSignals, 1);
+  assert.equal(score.totalNetR, 1);
+});
