@@ -19,9 +19,11 @@ const nonNegative = value => Number.isFinite(Number(value)) && Number(value) >= 
 function hasSpotPermission(market) {
   const sets = market?.permissionSets;
   if (Array.isArray(sets) && sets.length > 0) {
-    // Binance permissionSets are ANDed across sets; require SPOT in every
-    // set rather than accidentally admitting trade-group-restricted symbols.
-    return sets.every(group => Array.isArray(group) && group.includes("SPOT"));
+    // Each permission set is an AND requirement; permissions within a set
+    // are OR alternatives. For public Spot market-data eligibility, the symbol
+    // must have a set that includes SPOT. Any additional account-group set is
+    // an account-order restriction, not evidence that the instrument is non-Spot.
+    return sets.some(group => Array.isArray(group) && group.includes("SPOT"));
   }
   return Array.isArray(market?.permissions) && market.permissions.includes("SPOT");
 }
