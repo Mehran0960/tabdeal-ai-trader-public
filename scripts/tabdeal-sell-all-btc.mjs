@@ -8,6 +8,7 @@ export async function runSellAllFromEnvironment(env = process.env, fetchImpl = f
     apiKey: env.TABDEAL_API_KEY,
     apiSecret: env.TABDEAL_API_SECRET,
     mode: env.TABDEAL_SELL_MODE || "dry_run",
+    orderType: env.TABDEAL_SELL_ORDER_TYPE || "LIMIT",
     confirmLiveSell: env.TABDEAL_SELL_CONFIRM === "true",
     confirmedQuantity: env.TABDEAL_SELL_CONFIRM_QUANTITY || "",
     runId: env.GITHUB_RUN_ID,
@@ -31,12 +32,15 @@ async function main() {
       "- Mode: " + (report.mode ?? "unknown") + "\n" +
       "- Order submission: " + String(report.ordersSubmitted) + "\n" +
       "- Symbol / side: BTCUSDT / SELL\n" +
+      "- Order type: " + (preflight?.orderType ?? report.orderType ?? "unknown") + "\n" +
       (preflight ? (
         "- Free BTC: " + preflight.freeBtc + "\n" +
         "- Locked BTC: " + preflight.lockedBtc + "\n" +
         "- Sell quantity: " + preflight.sellQuantity + " BTC\n" +
         "- Step remainder: " + preflight.unsellableStepRemainderBtc + " BTC\n" +
-        "- IOC limit price: " + preflight.limitPrice + " USDT\n" +
+        (preflight.orderType === "LIMIT"
+          ? "- Limit price: " + preflight.limitPrice + " USDT\n"
+          : "- Market slippage guard: " + preflight.minimumAcceptablePrice + " USDT\n") +
         "- Estimated gross proceeds: " + preflight.estimatedGrossQuote + " USDT\n" +
         "- Estimated fee: " + (preflight.estimatedFeeQuote ?? "not available") + " USDT\n" +
         "- Estimated net proceeds: " + (preflight.estimatedNetQuote ?? "not available") + " USDT\n" +

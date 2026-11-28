@@ -7,6 +7,15 @@ on:
       - "ops/tabdeal-sell-preflight.trigger"
       - ".github/workflows/tabdeal-btc-sell-preflight.yml"
   workflow_dispatch:
+    inputs:
+      order_type:
+        description: "Order type to preflight only; no order is submitted"
+        required: true
+        type: choice
+        options:
+          - LIMIT
+          - MARKET
+        default: LIMIT
 
 permissions:
   contents: read
@@ -35,6 +44,7 @@ jobs:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
           TABDEAL_SELL_MODE: dry_run
+          TABDEAL_SELL_ORDER_TYPE: ${{ inputs.order_type || 'LIMIT' }}
           TABDEAL_SELL_CONFIRM: "false"
           TABDEAL_SELL_CONFIRM_QUANTITY: ""
         run: node scripts/tabdeal-sell-all-btc.mjs

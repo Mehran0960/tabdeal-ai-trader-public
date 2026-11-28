@@ -4,7 +4,6 @@ export const TABDEAL_SELL_SYMBOL = "BTCUSDT";
 export const TABDEAL_SELL_MAX_SPREAD_BPS = 30;
 export const TABDEAL_SELL_MAX_SLIPPAGE_BPS = 50;
 const API_BASE = "https://api1.tabdeal.org";
-const RECV_WINDOW_MS = 5_000;
 const DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const CLIENT_ORDER_ID = /^[A-Za-z0-9._-]{1,36}$/;
 
@@ -73,7 +72,8 @@ function freeAndLockedBtc(account) {
   if (!row) return {free: "0", locked: "0"};
   return {
     free: asDecimal(row.free ?? "0", "free_btc", true),
-    locked: asDecimal(row.locked ?? "0", "locked_btc", true)
+    // Tabdeal's documented Spot account schema calls the frozen balance "freeze".
+    locked: asDecimal(row.freeze ?? row.locked ?? "0", "locked_btc", true)
   };
 }
 function floorToStep(balance, step) {
@@ -87,35 +87,41 @@ function floorToStep(balance, step) {
     remainder: unitsDecimal(balanceUnits - quantityUnits, precision)
   };
 }
-function orderNotionalFilters(info) {
+function orderNotionalFilters(info, orderType) {
   const minimums = [];
   const maximums = [];
+  const isMarket = orderType === "MARKET";
   const minNotional = filterOf(info, "MIN_NOTIONAL");
-  if (minNotional) {
+  if (minNotional && (!isMarket || minNotional.applyToMarket !== false)) {
     if (minNotional.minNotional === undefined) fail("tabdeal_sell_min_notional_filter_invalid");
     minimums.push(asDecimal(minNotional.minNotional, "min_notional"));
   }
   const notional = filterOf(info, "NOTIONAL");
   if (notional) {
-    if (notional.minNotional !== undefined) minimums.push(asDecimal(notional.minNotional, "min_notional"));
-    if (notional.maxNotional !== undefined) maximums.push(asDecimal(notional.maxNotional, "max_notional"));
+    if (notional.minNotional !== undefined && (!isMarket || notional.applyMinToMarket !== false)) {
+      minimums.push(asDecimal(notional.minNotional, "min_notional"));
+    }
+    if (notional.maxNotional !== undefined && (!isMarket || notional.applyMaxToMarket !== false)) {
+      maximums.push(asDecimal(notional.maxNotional, "max_notional"));
+    }
   }
   return {minimums, maximums};
 }
 
 export function prepareTabdealSellAllBtc({
-  symbolInfo, depth, account, openOrders,
+  symbolInfo, depth, account, openOrders, orderType = "LIMIT",
   maxSpreadBps = TABDEAL_SELL_MAX_SPREAD_BPS,
   maxSlippageBps = TABDEAL_SELL_MAX_SLIPPAGE_BPS
 } = {}) {
+  if (orderType !== "LIMIT" && orderType !== "MARKET") fail("tabdeal_sell_order_type_unsupported");
   if (account?.canTrade === false) fail("tabdeal_sell_account_trading_disabled");
   if (!isRecord(symbolInfo) || symbolInfo.symbol !== TABDEAL_SELL_SYMBOL) {
     fail("tabdeal_sell_symbol_info_missing");
   }
   if (symbolInfo.status && symbolInfo.status !== "TRADING") fail("tabdeal_sell_symbol_not_trading");
   if (symbolInfo.isSpotTradingAllowed === false) fail("tabdeal_sell_spot_trading_disabled");
-  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes("LIMIT")) {
-    fail("tabdeal_sell_limit_order_not_allowed");
+  if (!Array.isArray(symbolInfo.orderTypes) || !symbolInfo.orderTypes.includes(orderType)) {
+    fail("tabdeal_sell_order_type_not_allowed");
   }
   if (!Number.isSafeInteger(maxSpreadBps) || maxSpreadBps < 0 || maxSpreadBps > 500 ||
       !Number.isSafeInteger(maxSlippageBps) || maxSlippageBps < 1 || maxSlippageBps > 500) {
@@ -128,7 +134,11 @@ export function prepareTabdealSellAllBtc({
   if (Number(balances.locked) > 0) fail("tabdeal_sell_btc_balance_locked_by_open_orders");
   if (Number(balances.free) <= 0) fail("tabdeal_sell_no_free_btc_balance");
 
-  const lot = filterOf(symbolInfo, "LOT_SIZE");
+  // Tabdeal documents MARKET_LOT_SIZE for market orders and LOT_SIZE for limits.
+  // Fall back to LOT_SIZE only if the market-specific filter is not supplied.
+  const lot = orderType === "MARKET"
+    ? (filterOf(symbolInfo, "MARKET_LOT_SIZE") ?? filterOf(symbolInfo, "LOT_SIZE"))
+    : filterOf(symbolInfo, "LOT_SIZE");
   const minQty = positive(lot?.minQty);
   const stepSize = positive(lot?.stepSize);
   const maxQty = lot?.maxQty === undefined ? null : positive(lot.maxQty);
@@ -144,9 +154,7 @@ export function prepareTabdealSellAllBtc({
     fail("tabdeal_sell_quantity_exceeds_single_order_maximum");
   }
 
-  const priceFilter = filterOf(symbolInfo, "PRICE_FILTER");
-  const tickSize = positive(priceFilter?.tickSize);
-  if (!tickSize) fail("tabdeal_sell_price_filter_missing_or_invalid");
+  const priceFilter = orderType === "LIMIT" ? filterOf(symbolInfo, "PRICE_FILTER") : null;
   const bids = normalizeLevels(depth?.bids, "bids");
   const asks = normalizeLevels(depth?.asks, "asks");
   const bestBid = bids[0].price;
@@ -158,25 +166,35 @@ export function prepareTabdealSellAllBtc({
     fail("tabdeal_sell_spread_above_limit");
   }
 
-  const pricePrecision = Math.max(
-    precisionOf(String(bids[0].price)),
-    precisionOf(priceFilter.tickSize),
-    precisionOf(priceFilter.minPrice ?? "0"),
-    precisionOf(priceFilter.maxPrice ?? "0")
-  );
-  if (pricePrecision > 24) fail("tabdeal_sell_price_precision_unsupported");
-  const bidUnits = decimalUnits(String(bids[0].price), pricePrecision);
-  const tickUnits = decimalUnits(priceFilter.tickSize, pricePrecision);
-  const floorNumerator = bidUnits * BigInt(10_000 - maxSlippageBps);
-  const floorUnitsBeforeTick = floorNumerator / 10_000n;
-  const limitPriceUnits = (floorUnitsBeforeTick / tickUnits) * tickUnits;
-  if (limitPriceUnits <= 0n) fail("tabdeal_sell_limit_price_invalid");
-  const limitPrice = unitsDecimal(limitPriceUnits, pricePrecision);
-  if (priceFilter.minPrice && Number(limitPrice) < Number(priceFilter.minPrice)) {
-    fail("tabdeal_sell_limit_price_below_exchange_minimum");
-  }
-  if (priceFilter.maxPrice && Number(limitPrice) > Number(priceFilter.maxPrice)) {
-    fail("tabdeal_sell_limit_price_above_exchange_maximum");
+  let limitPrice = null;
+  let minimumAcceptablePrice;
+  if (orderType === "LIMIT") {
+    const tickSize = positive(priceFilter?.tickSize);
+    if (!tickSize) fail("tabdeal_sell_price_filter_missing_or_invalid");
+    const pricePrecision = Math.max(
+      precisionOf(String(bids[0].price)),
+      precisionOf(priceFilter.tickSize),
+      precisionOf(priceFilter.minPrice ?? "0"),
+      precisionOf(priceFilter.maxPrice ?? "0")
+    );
+    if (pricePrecision > 24) fail("tabdeal_sell_price_precision_unsupported");
+    const bidUnits = decimalUnits(String(bids[0].price), pricePrecision);
+    const tickUnits = decimalUnits(priceFilter.tickSize, pricePrecision);
+    const floorNumerator = bidUnits * BigInt(10_000 - maxSlippageBps);
+    const floorUnitsBeforeTick = floorNumerator / 10_000n;
+    const limitPriceUnits = (floorUnitsBeforeTick / tickUnits) * tickUnits;
+    if (limitPriceUnits <= 0n) fail("tabdeal_sell_limit_price_invalid");
+    limitPrice = unitsDecimal(limitPriceUnits, pricePrecision);
+    if (priceFilter.minPrice && Number(limitPrice) < Number(priceFilter.minPrice)) {
+      fail("tabdeal_sell_limit_price_below_exchange_minimum");
+    }
+    if (priceFilter.maxPrice && Number(limitPrice) > Number(priceFilter.maxPrice)) {
+      fail("tabdeal_sell_limit_price_above_exchange_maximum");
+    }
+    minimumAcceptablePrice = Number(limitPrice);
+  } else {
+    // Market orders have no submitted price; this is only a preflight slippage guard.
+    minimumAcceptablePrice = bestBid * (1 - maxSlippageBps / 10_000);
   }
 
   const targetQuantity = Number(quantity);
@@ -184,7 +202,7 @@ export function prepareTabdealSellAllBtc({
   let estimatedGrossQuote = 0;
   let availableWithinLimit = 0;
   for (const level of bids) {
-    if (level.price + 1e-12 < Number(limitPrice)) break;
+    if (level.price + 1e-12 < minimumAcceptablePrice) break;
     availableWithinLimit += level.quantity;
     const used = Math.min(remaining, level.quantity);
     estimatedGrossQuote += used * level.price;
@@ -203,12 +221,14 @@ export function prepareTabdealSellAllBtc({
     fail("tabdeal_sell_estimated_slippage_above_limit");
   }
 
-  const limitNotional = Number(quantity) * Number(limitPrice);
-  const {minimums, maximums} = orderNotionalFilters(symbolInfo);
-  if (minimums.some(value => limitNotional + 1e-12 < Number(value))) {
+  const orderNotional = orderType === "MARKET"
+    ? estimatedGrossQuote
+    : Number(quantity) * Number(limitPrice);
+  const {minimums, maximums} = orderNotionalFilters(symbolInfo, orderType);
+  if (minimums.some(value => orderNotional + 1e-12 < Number(value))) {
     fail("tabdeal_sell_order_below_minimum_notional");
   }
-  if (maximums.some(value => limitNotional - 1e-12 > Number(value))) {
+  if (maximums.some(value => orderNotional - 1e-12 > Number(value))) {
     fail("tabdeal_sell_order_above_maximum_notional");
   }
   const takerCommission = Number(account?.takerCommission);
@@ -220,13 +240,13 @@ export function prepareTabdealSellAllBtc({
     status: "READY",
     symbol: TABDEAL_SELL_SYMBOL,
     side: "SELL",
-    orderType: "LIMIT",
-    timeInForce: "IOC",
+    orderType,
     freeBtc: balances.free,
     lockedBtc: balances.locked,
     sellQuantity: quantity,
     unsellableStepRemainderBtc: rounded.remainder,
     limitPrice,
+    minimumAcceptablePrice,
     bestBid,
     bestAsk,
     spreadBps,
@@ -238,7 +258,7 @@ export function prepareTabdealSellAllBtc({
     takerCommissionBps: commissionBps,
     estimatedFeeQuote,
     estimatedNetQuote: estimatedFeeQuote === null ? null : estimatedGrossQuote - estimatedFeeQuote,
-    estimatedQuoteAtLimit: limitNotional,
+    estimatedOrderNotional: orderNotional,
     visibleBidQuantityWithinLimit: availableWithinLimit,
     openOrdersBefore: orders.length,
     ordersSubmitted: false
@@ -256,14 +276,14 @@ function signedQuery(params, apiSecret) {
   return query.toString();
 }
 
-function normalizedOrder(data, fallbackClientOrderId) {
+function normalizedOrder(data, fallbackClientOrderId, fallbackOrderType = "LIMIT") {
   if (!isRecord(data) || data.orderId === undefined || data.orderId === null) return null;
   return {
     orderId: String(data.orderId),
     clientOrderId: data.clientOrderId || fallbackClientOrderId,
     symbol: data.symbol ?? TABDEAL_SELL_SYMBOL,
     side: data.side ?? "SELL",
-    type: data.type ?? "LIMIT",
+    type: data.type ?? fallbackOrderType,
     status: data.status ?? "UNKNOWN",
     originalQuantity: data.origQty === undefined ? null : String(data.origQty),
     executedQuantity: data.executedQty === undefined ? null : String(data.executedQty),
@@ -271,31 +291,33 @@ function normalizedOrder(data, fallbackClientOrderId) {
   };
 }
 
-export function buildTabdealLimitIocSellRequest({
-  quantity, price, clientOrderId, apiKey, apiSecret,
-  timestamp = Date.now(), receiveWindow = RECV_WINDOW_MS
+export function buildTabdealSellOrderRequest({
+  orderType = "LIMIT", quantity, price, clientOrderId, apiKey, apiSecret,
+  timestamp = Date.now()
 } = {}) {
+  if (orderType !== "MARKET" && orderType !== "LIMIT") {
+    fail("tabdeal_sell_order_type_unsupported");
+  }
   const qty = asDecimal(quantity, "order_quantity");
-  const limitPrice = asDecimal(price, "order_price");
+  const limitPrice = orderType === "LIMIT" ? asDecimal(price, "order_price") : null;
   const clientId = String(clientOrderId ?? "");
   if (!CLIENT_ORDER_ID.test(clientId)) fail("tabdeal_sell_client_order_id_invalid");
   if (typeof apiKey !== "string" || !apiKey.trim() ||
       typeof apiSecret !== "string" || !apiSecret.trim()) fail("tabdeal_sell_credentials_missing");
-  if (!Number.isSafeInteger(timestamp) || timestamp <= 0 ||
-      !Number.isSafeInteger(receiveWindow) || receiveWindow < 1 || receiveWindow > 10_000) {
+  if (!Number.isSafeInteger(timestamp) || timestamp <= 0) {
     fail("tabdeal_sell_request_timing_invalid");
   }
-  const body = signedQuery({
+  const params = {
     symbol: TABDEAL_SELL_SYMBOL,
     side: "SELL",
-    type: "LIMIT",
-    timeInForce: "IOC",
+    type: orderType,
     quantity: qty,
-    price: limitPrice,
     newClientOrderId: clientId,
-    timestamp,
-    recvWindow: receiveWindow
-  }, apiSecret);
+    timestamp
+  };
+  // Tabdeal's Spot contract requires price for LIMIT, but not for MARKET.
+  if (orderType === "LIMIT") params.price = limitPrice;
+  const body = signedQuery(params, apiSecret);
   return {
     method: "POST",
     url: API_BASE + "/api/v1/order",
@@ -309,7 +331,8 @@ export function buildTabdealLimitIocSellRequest({
 }
 
 function signedGetUrl(path, params, apiSecret, timestamp = Date.now()) {
-  const query = signedQuery({...params, timestamp, recvWindow: RECV_WINDOW_MS}, apiSecret);
+  // The documented Spot signed-query contract specifies timestamp and signature.
+  const query = signedQuery({...params, timestamp}, apiSecret);
   return API_BASE + "/r/api/v1" + path + "?" + query;
 }
 async function fetchJson(fetchImpl, url, options = {}, timeoutMs = 10_000) {
@@ -342,13 +365,13 @@ async function signedGet(path, params, apiKey, apiSecret, fetchImpl) {
 function isOrderNotFound(response, data) {
   return response.status === 404 && isRecord(data) && Number(data.code) === 1204;
 }
-async function lookupOrder(clientId, apiKey, apiSecret, fetchImpl) {
+async function lookupOrder(clientId, apiKey, apiSecret, fetchImpl, orderType = "LIMIT") {
   const {response, data} = await signedGet("/order", {
     symbol: TABDEAL_SELL_SYMBOL, origClientOrderId: clientId
   }, apiKey, apiSecret, fetchImpl);
   if (isOrderNotFound(response, data)) return null;
   if (!response.ok) fail("tabdeal_sell_order_lookup_unresolved_http_" + response.status);
-  const order = normalizedOrder(data, clientId);
+  const order = normalizedOrder(data, clientId, orderType);
   if (!order) fail("tabdeal_sell_order_lookup_schema_invalid");
   return order;
 }
@@ -395,6 +418,7 @@ export async function runTabdealSellAllBtc({
   apiKey,
   apiSecret,
   mode = "dry_run",
+  orderType = "LIMIT",
   confirmLiveSell = false,
   confirmedQuantity = "",
   runId,
@@ -409,8 +433,7 @@ export async function runTabdealSellAllBtc({
     symbol: TABDEAL_SELL_SYMBOL,
     mode,
     side: "SELL",
-    orderType: "LIMIT",
-    timeInForce: "IOC",
+    orderType,
     ordersSubmitted: false,
     automaticRetry: false,
     cancellationSent: false,
@@ -418,6 +441,9 @@ export async function runTabdealSellAllBtc({
   };
   if (mode !== "dry_run" && mode !== "live_sell") {
     return {...base, result: "invalid_mode_halt"};
+  }
+  if (orderType !== "LIMIT" && orderType !== "MARKET") {
+    return {...base, result: "invalid_order_type_halt"};
   }
   if (typeof apiKey !== "string" || !apiKey.trim() ||
       typeof apiSecret !== "string" || !apiSecret.trim()) {
@@ -442,7 +468,7 @@ export async function runTabdealSellAllBtc({
     if (!accountResult.response.ok) fail("tabdeal_sell_account_read_http_" + accountResult.response.status);
     if (!ordersResult.response.ok) fail("tabdeal_sell_open_orders_read_http_" + ordersResult.response.status);
     preflight = prepareTabdealSellAllBtc({
-      symbolInfo, depth, account: accountResult.data, openOrders: ordersResult.data
+      symbolInfo, depth, account: accountResult.data, openOrders: ordersResult.data, orderType
     });
   } catch (error) {
     return {
@@ -471,7 +497,7 @@ export async function runTabdealSellAllBtc({
 
   let priorOrder;
   try {
-    priorOrder = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl);
+    priorOrder = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType);
   } catch (error) {
     return {...base, result: "pre_submit_order_lookup_failed_halt",
       reason: String(error?.message || error).slice(0, 180), preflight, clientOrderId};
@@ -487,9 +513,10 @@ export async function runTabdealSellAllBtc({
       preflight, clientOrderId, ordersSubmitted: false};
   }
 
-  const request = buildTabdealLimitIocSellRequest({
+  const request = buildTabdealSellOrderRequest({
+    orderType,
     quantity: preflight.sellQuantity,
-    price: preflight.limitPrice,
+    price: preflight.limitPrice ?? undefined,
     clientOrderId,
     apiKey,
     apiSecret
@@ -502,7 +529,7 @@ export async function runTabdealSellAllBtc({
     }));
   } catch {
     try {
-      const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl);
+      const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType);
       if (reconciled) return {
         ...base, result: "sell_reconciled_after_uncertain_post",
         preflight, clientOrderId, order: reconciled, ordersSubmitted: true
@@ -516,7 +543,7 @@ export async function runTabdealSellAllBtc({
   if (!postResponse.ok) {
     if (postResponse.status >= 500) {
       try {
-        const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl);
+        const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType);
         if (reconciled) return {
           ...base, result: "sell_reconciled_after_server_error",
           httpStatus: postResponse.status, preflight, clientOrderId,
@@ -534,9 +561,9 @@ export async function runTabdealSellAllBtc({
       apiMessage: typeof postData?.msg === "string" ? postData.msg.slice(0, 180) : null,
       preflight, clientOrderId, ordersSubmitted: false};
   }
-  let order = normalizedOrder(postData, clientOrderId);
+  let order = normalizedOrder(postData, clientOrderId, orderType);
   if (!order) {
-    try { order = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl); } catch { order = null; }
+    try { order = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType); } catch { order = null; }
   }
   if (!order) {
     return {...base, result: "sell_accepted_response_unreconciled_halt",
@@ -558,7 +585,6 @@ export function safeTabdealSellSummary(report) {
     mode: report.mode,
     side: report.side,
     orderType: report.orderType,
-    timeInForce: report.timeInForce,
     result: report.result,
     reason: report.reason ?? null,
     httpStatus: report.httpStatus ?? null,
