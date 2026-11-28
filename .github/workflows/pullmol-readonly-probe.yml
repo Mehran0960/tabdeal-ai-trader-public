@@ -1,0 +1,30 @@
+name: Pullmol Read-Only API Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pullmol-readonly-probe
+  cancel-in-progress: false
+
+jobs:
+  public-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe documented public GET endpoints only
+        run: npm run probe:pullmol
+      - name: Upload sanitized metadata report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pullmol-readonly-api-probe
+          path: artifacts/pullmol-probe/latest.json
+          if-no-files-found: error
+          retention-days: 7
