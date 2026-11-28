@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "description": "Approved signal-source registry. Keep empty until rights, retention and model-processing scopes are independently verified.",
+  "sources": []
+}
