@@ -8,6 +8,12 @@ import {
   TABDEAL_LOCAL_PAPER_LATENCY_BUFFER_BPS
 } from "../../src/tabdeal-local-indicators.js";
 
+import {
+  createTabdealPaperBotState,
+  evaluateTabdealPaperBotTick,
+  TABDEAL_PAPER_BOT_POLICY
+} from "../../src/tabdeal-paper-bot.js";
+
 const KRAKEN_OHLC = "https://api.kraken.com/0/public/OHLC";
 const TABDEAL_API = "https://api1.tabdeal.org/r/api/v1";
 const SYMBOL = "BTCUSDT";
@@ -40,8 +46,8 @@ function json(data, status = 200) {
     }
   });
 }
-async function getJson(url, timeoutMs = MAX_BOOK_FETCH_MS) {
-  const response = await fetch(url, {
+async function getJson(url, timeoutMs = MAX_BOOK_FETCH_MS, fetchImpl = fetch) {
+  const response = await fetchImpl(url, {
     method: "GET",
     headers: {accept: "application/json"},
     signal: AbortSignal.timeout(timeoutMs)
@@ -115,6 +121,7 @@ function marketRules(market) {
   const price = find("PRICE_FILTER");
   return {
     minQty: lot?.minQty ?? null,
+    maxQty: lot?.maxQty ?? null,
     stepSize: lot?.stepSize ?? null,
     minNotional: notional?.minNotional ?? null,
     tickSize: price?.tickSize ?? null,
@@ -1082,6 +1089,214 @@ export async function runTabdealLocalPaperCapture(env, {nowMs = Date.now(), symb
   };
 }
 
+
+
+function parseStoredJson(value) {
+  try {
+    const parsed = JSON.parse(String(value ?? ""));
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizePaperBotMarket(exchangeInfo, symbol) {
+  const markets = Array.isArray(exchangeInfo) ? exchangeInfo
+    : isRecord(exchangeInfo) && Array.isArray(exchangeInfo.symbols) ? exchangeInfo.symbols
+    : null;
+  if (!markets) return null;
+  const matches = markets.filter(row => isRecord(row) &&
+    String(row.symbol || "").toUpperCase() === symbol);
+  if (matches.length !== 1) return null;
+  const market = matches[0];
+  if (market.status !== "TRADING" ||
+      String(market.baseAsset || "").toUpperCase() + String(market.quoteAsset || "").toUpperCase() !== symbol ||
+      String(market.quoteAsset || "").toUpperCase() !== "USDT" ||
+      market.isSpotTradingAllowed !== true ||
+      !Array.isArray(market.permissions) || !market.permissions.includes("SPOT")) return null;
+  return market;
+}
+
+async function readLatestPaperBotSignal(env, symbol) {
+  return env.DB.prepare(
+    "SELECT s.symbol,s.signal,s.reason,s.candle_open_ms,s.indicators_json,s.quality_json," +
+    "c.open_price,c.high_price,c.low_price,c.close_price,c.is_closed " +
+    "FROM tabdeal_local_paper_signals s " +
+    "JOIN tabdeal_spot_candles_1m c ON c.symbol=s.symbol AND c.minute_open_ms=s.candle_open_ms " +
+    "WHERE s.symbol=? AND s.strategy_version=? " +
+    "ORDER BY s.candle_open_ms DESC LIMIT 1"
+  ).bind(symbol, TABDEAL_LOCAL_PAPER_STRATEGY).first();
+}
+
+export async function runTabdealPaperBot(env, {nowMs = Date.now(), fetchImpl = fetch} = {}) {
+  const portfolioId = TABDEAL_PAPER_BOT_POLICY.portfolioId;
+  const lockToken = crypto.randomUUID();
+  const initialState = createTabdealPaperBotState({nowMs});
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO tabdeal_paper_bot_state " +
+    "(portfolio_id,state_json,lease_token,lease_until_ms,updated_at_ms) VALUES (?,?,NULL,0,?)"
+  ).bind(portfolioId, JSON.stringify(initialState), nowMs).run();
+
+  const lease = await env.DB.prepare(
+    "UPDATE tabdeal_paper_bot_state SET lease_token=?,lease_until_ms=?,updated_at_ms=? " +
+    "WHERE portfolio_id=? AND lease_until_ms<?"
+  ).bind(lockToken, nowMs + 45_000, nowMs, portfolioId, nowMs).run();
+  if (Number(lease.meta?.changes || 0) !== 1) {
+    return {status:"skipped_lock_held",action:"WAIT",portfolioId,events:0,
+      liveTradingEnabled:false,exchangeOrdersCreated:0,fundsMoved:false};
+  }
+
+  let stateCommitted = false;
+  try {
+    const stored = await env.DB.prepare(
+      "SELECT state_json FROM tabdeal_paper_bot_state WHERE portfolio_id=? AND lease_token=?"
+    ).bind(portfolioId, lockToken).first();
+    const state = parseStoredJson(stored?.state_json);
+    if (!state || state.portfolioId !== portfolioId) {
+      throw new Error("paper_bot_persisted_state_invalid");
+    }
+
+    const latestRows = await Promise.all(
+      TABDEAL_PAPER_WATCHLIST.map(symbol => readLatestPaperBotSignal(env, symbol))
+    );
+    const bySymbol = new Map(latestRows.filter(Boolean).map(row => [String(row.symbol).toUpperCase(), row]));
+    const needed = new Set();
+    if (state.position?.symbol) needed.add(String(state.position.symbol).toUpperCase());
+    for (const row of latestRows) {
+      if (row && row.signal === "BUY_CANDIDATE") needed.add(String(row.symbol).toUpperCase());
+    }
+
+    let exchangeInfo = null;
+    if (needed.size) {
+      exchangeInfo = await getJson(TABDEAL_API + "/exchangeInfo", 8_000, fetchImpl);
+    }
+
+    const signals = [];
+    const sourceErrors = {};
+    for (const symbol of needed) {
+      const row = bySymbol.get(symbol);
+      if (!row) {
+        sourceErrors[symbol] = "paper_bot_latest_signal_missing";
+        continue;
+      }
+      const market = normalizePaperBotMarket(exchangeInfo, symbol);
+      if (!market) {
+        sourceErrors[symbol] = "paper_bot_market_not_active_usdt_spot";
+        continue;
+      }
+      let book = null;
+      let bookObservedAtMs = 0;
+      try {
+        book = await getJson(TABDEAL_API + "/depth?symbol=" +
+          encodeURIComponent(symbol) + "&limit=100", 8_000, fetchImpl);
+        bookObservedAtMs = Date.now();
+      } catch (error) {
+        sourceErrors[symbol] = errorCode(error, "paper_bot_local_book_unavailable");
+      }
+      const quality = parseStoredJson(row.quality_json);
+      const indicators = parseStoredJson(row.indicators_json);
+      if (!quality || !indicators) {
+        sourceErrors[symbol] = "paper_bot_signal_payload_invalid";
+        continue;
+      }
+      signals.push({
+        symbol,
+        signal: String(row.signal || "WAIT"),
+        reason: String(row.reason || ""),
+        candle: {
+          minuteOpenMs: Number(row.candle_open_ms),
+          open: Number(row.open_price),
+          high: Number(row.high_price),
+          low: Number(row.low_price),
+          close: Number(row.close_price),
+          isClosed: Number(row.is_closed) === 1
+        },
+        analysis: {
+          status: quality.status === "usable" ? "ready" : "blocked",
+          signal: String(row.signal || "WAIT"),
+          dataQuality: quality,
+          indicators
+        },
+        book,
+        bookObservedAtMs,
+        marketRules: marketRules(market)
+      });
+    }
+
+    const evaluatedAtMs = Date.now();
+    const result = evaluateTabdealPaperBotTick({state,signals,nowMs:evaluatedAtMs});
+    const statements = [];
+    for (const event of result.events) {
+      statements.push(env.DB.prepare(
+        "INSERT OR IGNORE INTO tabdeal_paper_bot_events " +
+        "(event_id,portfolio_id,symbol,side,event_at_ms,candle_open_ms,quantity,average_price," +
+        "quote_notional,fee_paid,realized_pnl_usdt,reason,metadata_json) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).bind(
+        event.eventId,portfolioId,event.symbol,event.side,event.eventAtMs,event.candleOpenMs,
+        event.quantity,event.averagePrice,event.quoteNotional,event.feePaid,
+        event.realizedPnlUsdt,event.reason,JSON.stringify(event)
+      ));
+    }
+    statements.push(env.DB.prepare(
+      "UPDATE tabdeal_paper_bot_state SET state_json=?,updated_at_ms=?,lease_token=NULL,lease_until_ms=0 " +
+      "WHERE portfolio_id=? AND lease_token=?"
+    ).bind(JSON.stringify(result.state),evaluatedAtMs,portfolioId,lockToken));
+    await env.DB.batch(statements);
+    stateCommitted = true;
+
+    return {
+      status:"evaluated",portfolioId,action:result.action,reason:result.reason,
+      events:result.events.length,openPosition:result.state.position?.symbol || null,
+      cashBalanceUsdt:result.state.cashBalanceUsdt,
+      realizedPnlUsdt:result.state.realizedPnlUsdt,
+      maxDrawdownPct:result.state.maxDrawdownPct,
+      halted:result.state.halted,haltReason:result.state.haltReason,
+      sourceErrors,
+      liveTradingEnabled:false,exchangeOrdersCreated:0,fundsMoved:false
+    };
+  } finally {
+    if (!stateCommitted) {
+      await env.DB.prepare(
+        "UPDATE tabdeal_paper_bot_state SET lease_token=NULL,lease_until_ms=0,updated_at_ms=? " +
+        "WHERE portfolio_id=? AND lease_token=?"
+      ).bind(Date.now(),portfolioId,lockToken).run();
+    }
+  }
+}
+
+async function readTabdealPaperBotSummary(env) {
+  const portfolioId = TABDEAL_PAPER_BOT_POLICY.portfolioId;
+  const [stored, eventRows] = await Promise.all([
+    env.DB.prepare(
+      "SELECT state_json,updated_at_ms,lease_until_ms FROM tabdeal_paper_bot_state WHERE portfolio_id=?"
+    ).bind(portfolioId).first(),
+    env.DB.prepare(
+      "SELECT event_id,symbol,side,event_at_ms,candle_open_ms,quantity,average_price,quote_notional," +
+      "fee_paid,realized_pnl_usdt,reason,metadata_json FROM tabdeal_paper_bot_events " +
+      "WHERE portfolio_id=? ORDER BY event_at_ms DESC LIMIT 20"
+    ).bind(portfolioId).all()
+  ]);
+  const state = parseStoredJson(stored?.state_json);
+  return {
+    provider:"TABDEAL",market:"SPOT",mode:"forward_paper_only",
+    portfolioId,policy:TABDEAL_PAPER_BOT_POLICY,
+    status:state ? (state.halted ? "halted" : "running") : "not_started",
+    state,updatedAt:stored?.updated_at_ms ? new Date(Number(stored.updated_at_ms)).toISOString() : null,
+    recentEvents:(eventRows.results || []).map(row=>({
+      eventId:row.event_id,symbol:row.symbol,side:row.side,
+      eventAt:new Date(Number(row.event_at_ms)).toISOString(),
+      candleOpenAt:new Date(Number(row.candle_open_ms)).toISOString(),
+      quantity:Number(row.quantity),averagePrice:Number(row.average_price),
+      quoteNotional:Number(row.quote_notional),feePaid:Number(row.fee_paid),
+      realizedPnlUsdt:row.realized_pnl_usdt===null?null:Number(row.realized_pnl_usdt),
+      reason:row.reason
+    })),
+    execution:{paperOnly:true,liveTradingEnabled:false,exchangeOrdersCreated:0,
+      fundsMoved:false,privateAccountApiUsed:false}
+  };
+}
+
 async function readTabdealLocalPaperSummary(env, symbol = TRADE_STREAM_SYMBOL) {
   const [latest, stats] = await Promise.all([
     env.DB.prepare(
@@ -1191,6 +1406,14 @@ export default {
         return json({provider: "TABDEAL", market: "SPOT", status: "unavailable", liveTradingEnabled: false}, 503);
       }
     }
+    if (url.pathname === "/market-data/paper-bot") {
+      try {
+        return json(await readTabdealPaperBotSummary(env));
+      } catch {
+        return json({provider:"TABDEAL",market:"SPOT",mode:"forward_paper_only",
+          status:"unavailable",liveTradingEnabled:false,exchangeOrdersCreated:0,fundsMoved:false},503);
+      }
+    }
     if (url.pathname === "/market-data/watchlist") {
       try {
         return json(await readTabdealWatchlistSummary(env));
@@ -1254,12 +1477,17 @@ export default {
       }
     });
 
-    const tasks = [...symbolTasks];
-    if (shouldRunTabdealQuarterHourScan(event)) {
-      tasks.push(runScan(env).catch(error => {
-        console.error("tabdeal_shadow_scan_failed", String(error?.message || error));
-      }));
+    await Promise.allSettled(symbolTasks);
+    try {
+      const paperBot = await runTabdealPaperBot(env);
+      console.info("TABDEAL_FORWARD_PAPER_BOT " + JSON.stringify(paperBot));
+    } catch (error) {
+      console.error("tabdeal_forward_paper_bot_failed", String(error?.message || error));
     }
-    await Promise.allSettled(tasks);
+    if (shouldRunTabdealQuarterHourScan(event)) {
+      await runScan(env).catch(error => {
+        console.error("tabdeal_shadow_scan_failed", String(error?.message || error));
+      });
+    }
   }
 };

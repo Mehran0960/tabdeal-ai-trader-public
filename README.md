@@ -79,3 +79,9 @@ The preferred result may be **no trade**. No return is guaranteed. Third-party s
 ## Public/private separation
 
 Never place API keys, account data, private logs, Cloudflare account identifiers, database IDs, Worker URLs, or personal contact details in this repository. The private operations repository remains the canonical location for credentials and infrastructure-specific configuration.
+
+## Forward Paper portfolio bot (2026-11-28)
+
+A persistent, single-position, long-only forward-Paper portfolio now runs as part of the `tabdeal-mvp-shadow` Worker's once-per-minute scheduled cycle. It uses only fresh Tabdeal Spot USDT books and the existing closed local 1m signal stream. Virtual seed capital is 100 USDT; risk is capped at 0.25% per entry, 20% exposure, 2% daily loss and 20% maximum drawdown. It models fees, book-walk slippage, 2-ATR stop loss and 3R take profit. D1 stores the virtual portfolio and deduplicated fill events. The status endpoint is `GET /market-data/paper-bot`.
+
+**Paper only:** no private account endpoint, API credential, live-order request, exchange order or funds movement is used. This is an execution-loop validation experiment, not evidence of profitability. The prior strategy tournament had zero candidates pass all research gates; do not promote to live or lower research gates merely to force activity. See [Tabdeal forward Paper bot](docs/TABDEAL-PAPER-BOT.md).
