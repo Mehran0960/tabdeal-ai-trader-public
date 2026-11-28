@@ -98,8 +98,8 @@ test("preflights MARKET with MARKET_LOT_SIZE and no PRICE_FILTER requirement", (
   const marketInfo = {
     ...symbolInfo,
     filters: [
-      {filterType: "MARKET_LOT_SIZE", minQty: "0.00000100", maxQty: "1.00000000", stepSize: "0.00000100"},
-      {filterType: "MIN_NOTIONAL", minNotional: "1.00000000", applyToMarket: true, avgPriceMins: 5}
+      {filterType: "MARKET_LOT_SIZE", minQty: "0.00000200", maxQty: "1.00000000", stepSize: "0.00000200"},
+      {filterType: "MIN_NOTIONAL", minNotional: "0.50000000", applyToMarket: true, avgPriceMins: 5}
     ]
   };
   const marketAccount = {
@@ -111,10 +111,11 @@ test("preflights MARKET with MARKET_LOT_SIZE and no PRICE_FILTER requirement", (
   });
   assert.equal(result.status, "READY");
   assert.equal(result.orderType, "MARKET");
-  assert.equal(result.sellQuantity, "0.00001700");
+  assert.equal(result.sellQuantity, "0.00001600");
+  assert.equal(result.unsellableStepRemainderBtc, "0.00000199");
   assert.equal(result.limitPrice, null);
   assert.ok(result.minimumAcceptablePrice > 0);
-  assert.ok(result.estimatedGrossQuote > 1);
+  assert.ok(result.estimatedGrossQuote > 0.9);
 });
 
 test("skips MIN_NOTIONAL for MARKET when applyToMarket is false", () => {
