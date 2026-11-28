@@ -146,3 +146,22 @@ test("blocks Paper review when the dynamic exchange universe is incomplete",()=>
   assert.equal(report.paperReviewBlockReason,"dynamic_universe_coverage_incomplete");
   assert.deepEqual(report.prospectivePaperCandidates,[]);
 });
+
+test("excludes early-closed candle intervals without filling or fabricating a replacement",()=>{
+  const rows=makeRows({count:900});
+  const sample=rows.find(row=>row.symbol==="BTCUSDT"&&row.openTimeMs===START+400*INTERVAL);
+  sample.closeTimeMs-=60_000;
+  const history=normalizeStrategyTournamentHistory(rows,{nowMs:TEST_NOW});
+  assert.equal(history.available,true);
+  assert.equal(history.excludedIncompleteCandleCount,1);
+  assert.equal(history.excludedIncompleteBySymbol.BTCUSDT,1);
+  assert.equal(history.candlesBySymbol.BTCUSDT.length,899);
+  assert.ok(!history.candlesBySymbol.BTCUSDT.some(row=>row.time===sample.openTimeMs));
+});
+
+test("rejects candles whose close time extends beyond the expected interval",()=>{
+  const rows=makeRows();
+  rows[0].closeTimeMs+=60_000;
+  assert.throws(()=>normalizeStrategyTournamentHistory(rows,{nowMs:TEST_NOW}),
+    /tournament_candle_invalid_/);
+});
