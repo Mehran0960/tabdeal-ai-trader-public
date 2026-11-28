@@ -1,0 +1,39 @@
+name: Domestic Exchange Read-Only Venue Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/domestic-exchange-probe.js"
+      - "scripts/probe-domestic-exchanges.mjs"
+      - "tests/domestic-exchange-probe.test.mjs"
+      - ".github/workflows/domestic-exchange-probe.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "41 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: domestic-exchange-readonly-probe
+  cancel-in-progress: false
+
+jobs:
+  public-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run unauthenticated domestic exchange public API probes
+        run: npm run domestic:probe
+      - name: Preserve sanitized comparison report
+        uses: actions/upload-artifact@v4
+        with:
+          name: domestic-exchange-readonly-probe
+          path: artifacts/domestic-exchange-probe/latest.json
+          if-no-files-found: error
+          retention-days: 14
