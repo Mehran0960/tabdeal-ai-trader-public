@@ -8,3 +8,6 @@ Mode: read-only dry_run only; no live sell authorization in this trigger.
 
 Fresh read-only LIMIT IOC sell eligibility check requested: 2026-11-28.
 This remains dry_run only; no valid order payload and no live order submission.
+
+Fresh read-only MARKET sell preflight requested: 2026-11-28.
+This trigger authorizes only GET-based preflight; it does not authorize or send a sell order.
