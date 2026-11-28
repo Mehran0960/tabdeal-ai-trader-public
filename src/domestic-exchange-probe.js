@@ -60,7 +60,8 @@ export function estimateSellBook(book, baseQuantity = REFERENCE_BTC_QUANTITY) {
 
   const bestBid = bids[0].price;
   const bestAsk = Math.min(...asks.map(level => level.price));
-  const spreadBps = bestAsk >= bestBid
+  const bookCrossed = bestAsk < bestBid;
+  const spreadBps = !bookCrossed
     ? ((bestAsk - bestBid) / ((bestAsk + bestBid) / 2)) * 10_000
     : null;
   let remaining = quantity;
@@ -75,13 +76,13 @@ export function estimateSellBook(book, baseQuantity = REFERENCE_BTC_QUANTITY) {
   }
   const canFill = remaining <= Math.max(1e-14, quantity * 1e-10);
   return {
-    status: canFill ? "visible_depth_covers_reference_quantity" : "visible_depth_insufficient",
+    status: bookCrossed ? "crossed_book" : canFill ? "visible_depth_covers_reference_quantity" : "visible_depth_insufficient",
     bestBid,
     bestAsk,
     spreadBps,
     referenceQuantityBtc: String(baseQuantity),
     visibleBidQuantityBtc: visibleBidQuantity,
-    canFillReferenceQuantity: canFill,
+    canFillReferenceQuantity: canFill && !bookCrossed,
     estimatedGrossUsdt: canFill ? gross : null,
     estimatedVwap: canFill ? gross / quantity : null
   };
@@ -137,7 +138,9 @@ function assessWallex(payloads, spotBook, otcBook, referenceQuantityBtc = REFERE
   const spotMarket = payloads.markets?.result?.symbols?.BTCUSDT ?? null;
   const otcMarket = payloads.otcMarkets?.result?.symbols?.BTCUSDT ?? null;
   const spotBookAssessment = estimateSellBook(wallexBook(spotBook), referenceQuantityBtc);
-  const otcBookAssessment = estimateSellBook(wallexBook(otcBook ?? spotBook), referenceQuantityBtc);
+  const otcBookAssessment = otcBook
+    ? estimateSellBook(wallexBook(otcBook), referenceQuantityBtc)
+    : {status: "not_probed_no_public_otc_quote"};
   const minSpotNotional = positive(spotMarket?.minNotional);
   const minOtcNotional = positive(otcMarket?.minNotional);
   const bestBid = spotBookAssessment.bestBid;
@@ -165,6 +168,7 @@ function assessWallex(payloads, spotBook, otcBook, referenceQuantityBtc = REFERE
       minimumQuoteNotionalUsdt: minOtcNotional,
       sellStatus: otcMarket?.sellStatus ?? null,
       referenceQuantityEstimatedNotionalUsdt: referenceNotional,
+      pricingBasis: "BTCUSDT spot best bid; not an OTC execution quote",
       referenceQuantityMeetsKnownMinimum: !otcMarket || minOtcNotional === null || referenceNotional === null
         ? null
         : referenceNotional >= minOtcNotional,
