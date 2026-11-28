@@ -71,6 +71,7 @@ function paperDbMock(signalRow) {
   };
   return {
     DB,
+    holdLease(token, untilMs) { leaseToken=token; leaseUntilMs=untilMs; },
     inspect() {
       return {state:stateJson?JSON.parse(stateJson):null,events:[...events],leaseToken};
     }
@@ -142,7 +143,7 @@ test("Worker scheduled paper portfolio opens one virtual position and persists a
   assert.equal(stored.state.portfolioId,TABDEAL_PAPER_BOT_POLICY.portfolioId);
 });
 
-test("Worker paper portfolio skips a concurrent scheduled tick while lease is held",async()=>{
+test("Worker paper portfolio skips overlapping cron tick while lease is held",async()=>{
   const db=paperDbMock(signalRow());
   const env={DB:db.DB};
   const first=await runTabdealPaperBot(env,{nowMs,fetchImpl:async url=>{
@@ -152,10 +153,11 @@ test("Worker paper portfolio skips a concurrent scheduled tick while lease is he
     throw new Error("unexpected_public_request");
   }});
   assert.equal(first.action,"BUY");
+  db.holdLease("another-running-tick",nowMs+60_000);
   const second=await runTabdealPaperBot(env,{nowMs:nowMs+1,fetchImpl:async()=>{
-    throw new Error("fetch_should_not_be_needed_for_lock_test");
+    throw new Error("fetch_should_not_be_needed_when_lease_is_held");
   }});
-  assert.equal(second.status,"evaluated");
-  assert.notEqual(second.action,"BUY");
+  assert.equal(second.status,"skipped_lock_held");
+  assert.equal(second.action,"WAIT");
   assert.equal(db.inspect().events.length,1);
 });
