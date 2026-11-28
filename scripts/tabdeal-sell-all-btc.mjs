@@ -32,7 +32,7 @@ async function main() {
       "- Mode: " + (report.mode ?? "unknown") + "\n" +
       "- Order submission: " + String(report.ordersSubmitted) + "\n" +
       "- Symbol / side: BTCUSDT / SELL\n" +
-      "- Order type: " + (preflight.orderType ?? report.orderType ?? "unknown") + "\n" +
+      "- Order type: " + (preflight?.orderType ?? report.orderType ?? "unknown") + "\n" +
       (preflight ? (
         "- Free BTC: " + preflight.freeBtc + "\n" +
         "- Locked BTC: " + preflight.lockedBtc + "\n" +
