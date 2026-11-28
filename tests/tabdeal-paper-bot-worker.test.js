@@ -43,7 +43,7 @@ function paperDbMock(signalRow) {
       throw new Error("paper_db_unexpected_first");
     },
     async all() { return {results:[]}; },
-    sql
+    sql,values
   });
   const DB = {
     prepare(sql) { return prepared(sql,{}); },
