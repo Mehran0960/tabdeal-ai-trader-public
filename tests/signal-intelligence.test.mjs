@@ -174,3 +174,14 @@ test("source scoring never fabricates sample sufficiency or profit factor", () =
   assert.equal(score.profitFactor, null);
   assert.equal(score.livePromotionEligible, false);
 });
+
+
+test("source scoring treats missing realized R as unresolved, not a breakeven win", () => {
+  const score = scoreSignalSource([
+    {outcome: {resolved: true, netR: null}},
+    {outcome: {resolved: true, netR: 0.5}}
+  ], {minimumResolvedTrades: 1});
+  assert.equal(score.resolvedTrades, 1);
+  assert.equal(score.unresolvedSignals, 1);
+  assert.equal(score.wins, 1);
+});
