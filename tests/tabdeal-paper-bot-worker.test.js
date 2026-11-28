@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {runTabdealPaperBot} from "../workers/tabdeal-mvp-shadow/index.js";
 import {TABDEAL_PAPER_BOT_POLICY} from "../src/tabdeal-paper-bot.js";
 
-const nowMs = Date.parse("2026-11-28T05:00:00.000Z");
+const nowMs = Date.now();
 
 function response(payload) {
   return {ok:true,status:200,async json(){return payload;}};
