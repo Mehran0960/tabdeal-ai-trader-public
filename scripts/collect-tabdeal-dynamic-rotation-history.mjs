@@ -32,7 +32,7 @@ async function main(){
   const historyDir=arg("--history-dir",path.join("signal-history","data","international-market-history"));
   const stateDir=arg("--state-dir",path.join("signal-history","data","dynamic-tabdeal-rotation-universe"));
   const outputPath=arg("--output",path.join("artifacts","tabdeal-dynamic-rotation-history","latest.json"));
-  const maxMarkets=Number(arg("--max-markets","200"));
+  const maxMarkets=Number(arg("--max-markets","300"));
   const backfillDays=Number(arg("--backfill-days","730"));
   await mkdir(stateDir,{recursive:true});
   const indexPath=path.join(stateDir,"candle-index.json");
