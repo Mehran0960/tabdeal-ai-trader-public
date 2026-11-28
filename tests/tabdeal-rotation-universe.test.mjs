@@ -26,6 +26,7 @@ function fixture() {
     market("DOGEUSDT", "DOGE"),
     market("FOOUPUSDT", "FOOUP"),
     market("USDCUSDT", "USDC"),
+    market("RESTRICTEDUSDT", "RESTRICTED", { permissions: [], permissionSets: [["SPOT"], ["TRD_GRP_999"]] }),
     market("LOCALUSDT", "LOCAL")
   ];
   const binanceExchangeInfo = { symbols: [
@@ -41,7 +42,8 @@ function fixture() {
     { symbol: "XRPUSDT", quoteVolume: "50000000", count: 20000, lastPrice: "2" },
     { symbol: "DOGEUSDT", quoteVolume: "10000000", count: 10000, lastPrice: "0.2" },
     { symbol: "FOOUPUSDT", quoteVolume: "90000000", count: 30000, lastPrice: "1" },
-    { symbol: "USDCUSDT", quoteVolume: "100000000", count: 50000, lastPrice: "1" }
+    { symbol: "USDCUSDT", quoteVolume: "100000000", count: 50000, lastPrice: "1" },
+    { symbol: "RESTRICTEDUSDT", quoteVolume: "100000000", count: 50000, lastPrice: "1" }
   ];
   return { tabdealExchangeInfo, binanceExchangeInfo, binanceTickers24h };
 }
@@ -75,6 +77,7 @@ test("excludes missing cross-listings, stablecoin bases, leveraged tokens, and i
   const result = buildTabdealRotationUniverse(input);
   assert.ok(!result.markets.some(row => ["USDCUSDT", "FOOUPUSDT", "BADUSDT", "LOCALUSDT"].includes(row.symbol)));
   assert.equal(result.excluded.invalidMarketRules, 1);
+  assert.equal(result.excluded.binanceInactiveOrNonSpot, 1);
   assert.equal(result.excluded.missingOnBinance, 1);
 });
 
@@ -107,4 +110,28 @@ test("rejects malformed inputs and unsafe policies", () => {
 test("uses a liquidity floor rather than assuming a fixed five-asset universe", () => {
   assert.equal(TABDEAL_ROTATION_UNIVERSE_POLICY.minimumBinanceQuoteVolumeUsdt, 250_000);
   assert.equal(TABDEAL_ROTATION_UNIVERSE_POLICY.maximumResearchMarkets, 200);
+});
+
+test("supports Binance permissionSets after the legacy permissions field is retired", () => {
+  const input = fixture();
+  for (const markets of [input.tabdealExchangeInfo, input.binanceExchangeInfo.symbols]) {
+    const row = markets.find(item => item.symbol === "ETHUSDT");
+    row.permissions = [];
+    row.permissionSets = [["SPOT", "MARGIN"]];
+  }
+  const result = buildTabdealRotationUniverse(input);
+  assert.ok(result.markets.some(row => row.symbol === "ETHUSDT"));
+  assert.equal(result.excluded.binanceInactiveOrNonSpot, 0);
+});
+
+test("rejects symbols whose permissionSets require a trade-group permission in addition to Spot", () => {
+  const input = fixture();
+  for (const markets of [input.tabdealExchangeInfo, input.binanceExchangeInfo.symbols]) {
+    const row = markets.find(item => item.symbol === "ETHUSDT");
+    row.permissions = [];
+    row.permissionSets = [["SPOT"], ["TRD_GRP_999"]];
+  }
+  const result = buildTabdealRotationUniverse(input);
+  assert.ok(!result.markets.some(row => row.symbol === "ETHUSDT"));
+  assert.equal(result.excluded.binanceInactiveOrNonSpot, 1);
 });
