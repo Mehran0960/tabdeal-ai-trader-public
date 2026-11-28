@@ -26,7 +26,6 @@ function fixture() {
     market("DOGEUSDT", "DOGE"),
     market("FOOUPUSDT", "FOOUP"),
     market("USDCUSDT", "USDC"),
-    market("RESTRICTEDUSDT", "RESTRICTED", { permissions: [], permissionSets: [["SPOT"], ["TRD_GRP_999"]] }),
     market("LOCALUSDT", "LOCAL")
   ];
   const binanceExchangeInfo = { symbols: [
@@ -34,7 +33,6 @@ function fixture() {
     market("SOLUSDT", "SOL"), market("XRPUSDT", "XRP"),
     market("DOGEUSDT", "DOGE"), market("FOOUPUSDT", "FOOUP"),
     market("USDCUSDT", "USDC"),
-    market("RESTRICTEDUSDT", "RESTRICTED", { permissions: [], permissionSets: [["SPOT"], ["TRD_GRP_999"]] })
   ] };
   const binanceTickers24h = [
     { symbol: "BTCUSDT", quoteVolume: "1000000000", count: 100000, lastPrice: "90000" },
@@ -43,8 +41,7 @@ function fixture() {
     { symbol: "XRPUSDT", quoteVolume: "50000000", count: 20000, lastPrice: "2" },
     { symbol: "DOGEUSDT", quoteVolume: "10000000", count: 10000, lastPrice: "0.2" },
     { symbol: "FOOUPUSDT", quoteVolume: "90000000", count: 30000, lastPrice: "1" },
-    { symbol: "USDCUSDT", quoteVolume: "100000000", count: 50000, lastPrice: "1" },
-    { symbol: "RESTRICTEDUSDT", quoteVolume: "100000000", count: 50000, lastPrice: "1" }
+    { symbol: "USDCUSDT", quoteVolume: "100000000", count: 50000, lastPrice: "1" }
   ];
   return { tabdealExchangeInfo, binanceExchangeInfo, binanceTickers24h };
 }
