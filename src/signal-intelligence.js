@@ -223,7 +223,9 @@ export function normalizeSignal(input, source, {nowMs = Date.now()} = {}) {
   }
 
   const parser = isRecord(input.parser) ? input.parser : {};
-  const parserConfidence = Number(parser.confidence);
+  const hasParserConfidence = typeof parser.confidence === "number" ||
+    (typeof parser.confidence === "string" && parser.confidence.trim() !== "");
+  const parserConfidence = hasParserConfidence ? Number(parser.confidence) : Number.NaN;
   if (!Number.isFinite(parserConfidence) || parserConfidence < 0 || parserConfidence > 1) {
     errors.push("parser_confidence_invalid");
   }
@@ -304,8 +306,13 @@ export function scoreSignalSource(records, {minimumResolvedTrades = 100, minimum
   const trades = [];
   let noEntrySignals = 0;
   let unresolvedSignals = 0;
+  let quarantinedSignals = 0;
 
   for (const record of records) {
+    if (record?.researchEligible === false) {
+      quarantinedSignals++;
+      continue;
+    }
     const outcome = record?.outcome;
     if (isRecord(outcome) && noEntryStatuses.has(outcome.status)) {
       noEntrySignals++;
@@ -364,6 +371,7 @@ export function scoreSignalSource(records, {minimumResolvedTrades = 100, minimum
     resolvedTrades,
     noEntrySignals,
     unresolvedSignals,
+    quarantinedSignals,
     wins,
     losses,
     breakeven,
