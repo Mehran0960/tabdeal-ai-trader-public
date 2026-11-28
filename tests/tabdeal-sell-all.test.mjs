@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {createHmac} from "node:crypto";
 import {
   prepareTabdealSellAllBtc,
-  buildTabdealLimitIocSellRequest,
+  buildTabdealSellOrderRequest,
   runTabdealSellAllBtc
 } from "../src/tabdeal-sell-all.js";
 
@@ -73,19 +73,62 @@ function readOnlyFetchMock({postResponse} = {}) {
   return {fetchImpl, calls};
 }
 
-test("preflight rounds free BTC down to LOT_SIZE and estimates IOC sale proceeds", () => {
+test("preflight rounds free BTC down to LOT_SIZE and estimates documented LIMIT sale proceeds", () => {
   const result = prepareTabdealSellAllBtc(readyArgs);
   assert.equal(result.status, "READY");
   assert.equal(result.sellQuantity, "0.00001700");
   assert.equal(result.unsellableStepRemainderBtc, "0.00000099");
   assert.equal(result.side, "SELL");
   assert.equal(result.orderType, "LIMIT");
-  assert.equal(result.timeInForce, "IOC");
   assert.equal(result.limitPrice, "59700.00");
   assert.ok(result.estimatedGrossQuote > 1);
   assert.ok(result.estimatedSlippageBps >= 0);
   assert.ok(result.estimatedSlippageBps <= 50);
   assert.equal(result.ordersSubmitted, false);
+});
+
+test("uses Tabdeal's documented freeze balance field to block locked BTC", () => {
+  assert.throws(() => prepareTabdealSellAllBtc({
+    ...readyArgs,
+    account: {...account, balances: [{asset: "BTC", free: "0.00001799", freeze: "0.00000100"}]}
+  }), /btc_balance_locked_by_open_orders/);
+});
+
+test("preflights MARKET with MARKET_LOT_SIZE and no PRICE_FILTER requirement", () => {
+  const marketInfo = {
+    ...symbolInfo,
+    filters: [
+      {filterType: "MARKET_LOT_SIZE", minQty: "0.00000100", maxQty: "1.00000000", stepSize: "0.00000100"},
+      {filterType: "MIN_NOTIONAL", minNotional: "1.00000000", applyToMarket: true, avgPriceMins: 5}
+    ]
+  };
+  const marketAccount = {
+    ...account,
+    balances: [{asset: "BTC", free: "0.00001799", freeze: "0.00000000"}]
+  };
+  const result = prepareTabdealSellAllBtc({
+    ...readyArgs, symbolInfo: marketInfo, account: marketAccount, orderType: "MARKET"
+  });
+  assert.equal(result.status, "READY");
+  assert.equal(result.orderType, "MARKET");
+  assert.equal(result.sellQuantity, "0.00001700");
+  assert.equal(result.limitPrice, null);
+  assert.ok(result.minimumAcceptablePrice > 0);
+  assert.ok(result.estimatedGrossQuote > 1);
+});
+
+test("skips MIN_NOTIONAL for MARKET when applyToMarket is false", () => {
+  const marketInfo = {
+    ...symbolInfo,
+    filters: [
+      {filterType: "MARKET_LOT_SIZE", minQty: "0.00000100", maxQty: "1.00000000", stepSize: "0.00000100"},
+      {filterType: "MIN_NOTIONAL", minNotional: "999999.00000000", applyToMarket: false, avgPriceMins: 5}
+    ]
+  };
+  const result = prepareTabdealSellAllBtc({
+    ...readyArgs, symbolInfo: marketInfo, orderType: "MARKET"
+  });
+  assert.equal(result.status, "READY");
 });
 
 test("never rounds sell quantity upward above the free BTC balance", () => {
@@ -144,8 +187,9 @@ test("blocks a wide or crossed order book and an unsupported symbol state", () =
   }), /symbol_not_trading/);
 });
 
-test("builds a correctly signed BTCUSDT LIMIT IOC SELL request", () => {
-  const request = buildTabdealLimitIocSellRequest({
+test("builds a correctly signed BTCUSDT LIMIT SELL request using documented Spot fields", () => {
+  const request = buildTabdealSellOrderRequest({
+    orderType: "LIMIT",
     quantity: "0.00001700", price: "59700.00",
     clientOrderId: "sellbtc-123", apiKey: "test-key", apiSecret: "test-secret",
     timestamp: 1_800_000_000_000
@@ -159,10 +203,45 @@ test("builds a correctly signed BTCUSDT LIMIT IOC SELL request", () => {
   assert.equal(params.get("symbol"), "BTCUSDT");
   assert.equal(params.get("side"), "SELL");
   assert.equal(params.get("type"), "LIMIT");
-  assert.equal(params.get("timeInForce"), "IOC");
   assert.equal(params.get("quantity"), "0.00001700");
   assert.equal(params.get("price"), "59700.00");
   assert.equal(params.get("newClientOrderId"), "sellbtc-123");
+  assert.equal(params.has("timeInForce"), false);
+  assert.equal(params.has("recvWindow"), false);
+});
+
+test("builds a correctly signed BTCUSDT MARKET SELL request without price or timeInForce", () => {
+  const request = buildTabdealSellOrderRequest({
+    orderType: "MARKET",
+    quantity: "0.00001700",
+    clientOrderId: "sellbtc-124", apiKey: "test-key", apiSecret: "test-secret",
+    timestamp: 1_800_000_000_000
+  });
+  const params = new URLSearchParams(request.body);
+  const signature = params.get("signature");
+  params.delete("signature");
+  assert.equal(signature, createHmac("sha256", "test-secret").update(params.toString()).digest("hex"));
+  assert.equal(params.get("symbol"), "BTCUSDT");
+  assert.equal(params.get("side"), "SELL");
+  assert.equal(params.get("type"), "MARKET");
+  assert.equal(params.get("quantity"), "0.00001700");
+  assert.equal(params.get("newClientOrderId"), "sellbtc-124");
+  assert.equal(params.has("price"), false);
+  assert.equal(params.has("timeInForce"), false);
+  assert.equal(params.has("recvWindow"), false);
+});
+
+test("MARKET dry-run checks live balance and order book but never sends POST", async () => {
+  const {fetchImpl, calls} = readOnlyFetchMock();
+  const report = await runTabdealSellAllBtc({
+    apiKey: "test-key", apiSecret: "test-secret",
+    mode: "dry_run", orderType: "MARKET", fetchImpl
+  });
+  assert.equal(report.result, "dry_run_passed_no_order_sent");
+  assert.equal(report.orderType, "MARKET");
+  assert.equal(report.preflight.orderType, "MARKET");
+  assert.equal(report.ordersSubmitted, false);
+  assert.equal(calls.some(call => call.method === "POST"), false);
 });
 
 test("dry-run checks live balances and order book but never sends POST", async () => {
@@ -199,6 +278,35 @@ test("live mode refuses to POST if the confirmed BTC quantity differs from fresh
   });
   assert.equal(report.result, "live_sell_quantity_confirmation_mismatch_halt");
   assert.equal(calls.some(call => call.method === "POST"), false);
+});
+
+test("MARKET live adapter builds one market order and reconciles the fill state", async () => {
+  const {fetchImpl, calls} = readOnlyFetchMock({
+    postResponse: async (_url, options) => {
+      const params = new URLSearchParams(options.body);
+      assert.equal(params.get("type"), "MARKET");
+      assert.equal(params.has("price"), false);
+      assert.equal(params.has("timeInForce"), false);
+      return jsonResponse({
+        orderId: 457, clientOrderId: params.get("newClientOrderId"),
+        symbol: "BTCUSDT", side: "SELL", type: "MARKET", status: "FILLED",
+        origQty: params.get("quantity"), executedQty: params.get("quantity"),
+        cummulativeQuoteQty: "1.01900000"
+      });
+    }
+  });
+  const report = await runTabdealSellAllBtc({
+    apiKey: "test-key", apiSecret: "test-secret",
+    mode: "live_sell", orderType: "MARKET", confirmLiveSell: true,
+    confirmedQuantity: "0.00001700", runId: "124",
+    repository: "Mehran0960/tabdeal-ai-trader-public",
+    commitSha: "a".repeat(40), githubToken: "test-github-token",
+    fetchImpl, claimLock: async () => ({claimed: true, result: "test_lock_claimed"})
+  });
+  assert.equal(report.result, "sell_filled");
+  assert.equal(report.order.type, "MARKET");
+  assert.equal(report.ordersSubmitted, true);
+  assert.equal(calls.filter(call => call.method === "POST").length, 1);
 });
 
 test("live sell performs at most one POST and reports the exchange's fill state", async () => {
@@ -292,12 +400,17 @@ test("live sell halts without duplicate POST after an uncertain submission", asy
 });
 
 test("rejects malformed or excessive order quantities before building a request", () => {
-  assert.throws(() => buildTabdealLimitIocSellRequest({
-    quantity: "1e-4", price: "59700", clientOrderId: "sellbtc-1",
-    apiKey: "test-key", apiSecret: "test-secret"
+  assert.throws(() => buildTabdealSellOrderRequest({
+    orderType: "LIMIT", quantity: "1e-4", price: "59700",
+    clientOrderId: "sellbtc-1", apiKey: "test-key", apiSecret: "test-secret"
   }), /order_quantity_invalid/);
-  assert.throws(() => buildTabdealLimitIocSellRequest({
-    quantity: "0.00001", price: "59700", clientOrderId: "bad id",
-    apiKey: "test-key", apiSecret: "test-secret"
+  assert.throws(() => buildTabdealSellOrderRequest({
+    orderType: "LIMIT", quantity: "0.00001", price: "59700",
+    clientOrderId: "bad id", apiKey: "test-key", apiSecret: "test-secret"
   }), /client_order_id_invalid/);
+  assert.throws(() => buildTabdealSellOrderRequest({
+    orderType: "STOP_LOSS_LIMIT", quantity: "0.00001", price: "59700",
+    clientOrderId: "sellbtc-1", apiKey: "test-key", apiSecret: "test-secret",
+    timestamp: 1_800_000_000_000
+  }), /order_type_unsupported/);
 });
