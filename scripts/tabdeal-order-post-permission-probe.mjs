@@ -95,10 +95,13 @@ export async function runTabdealPostPermissionProbe({
     return {...base, result: "preflight_network_error"};
   }
 
-  if (!Array.isArray(preflight) || preflight.length > 5_000) {
+  const markets = Array.isArray(preflight) ? preflight
+    : isRecord(preflight) && Array.isArray(preflight.symbols) ? preflight.symbols : null;
+  if (!markets || markets.length === 0 || markets.length > 5_000 ||
+      !markets.some(row => isRecord(row) && typeof row.symbol === "string")) {
     return {...base, result: "preflight_schema_unverified"};
   }
-  const symbolListed = preflight.some(row =>
+  const symbolListed = markets.some(row =>
     isRecord(row) && String(row.symbol || "").trim().toUpperCase() === TABDEAL_POST_PROBE_SYMBOL
   );
   if (symbolListed) {
