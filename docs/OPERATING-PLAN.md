@@ -1,3 +1,12 @@
+# Forward-Paper portfolio bot — 2026-11-28
+
+- Added `src/tabdeal-paper-bot.js` as a persistent single-position, long-only virtual portfolio engine. It reuses the established risk calculator and paper order-book walker; it does not read account credentials or submit exchange orders.
+- The deployed `tabdeal-mvp-shadow` Worker now has a source change to run one serialized Paper portfolio tick after its per-symbol data/signal jobs. D1 persistence is defined in migration `0006_tabdeal_paper_bot.sql`; the status route is `GET /market-data/paper-bot`.
+- Registered virtual seed: 100 USDT; risk 0.25% per entry; max exposure 20%; daily-loss stop 2%; maximum drawdown stop 20%; fee assumption 40 bps per side; latency buffer 5 bps; max slippage 25 bps; max spread 30 bps; min two-sided depth 1,000 USDT within 0.25%; stop 2 ATR; target 3R.
+- These are Paper assumptions, not the user's exchange balance or verified personal fee tier. At most one virtual long position is held. Exits that cannot be fully filled in the local book stay pending; no simulated fill is fabricated.
+- **Not promoted to live:** previous historical strategy screening has zero candidates that pass all research gates. The new Paper portfolio tests the operational loop and will require completed forward trades and net-of-cost evaluation before any separate strategy review. Do not loosen gates to manufacture trades.
+- Safety invariant: `liveTradingEnabled=false`, zero exchange orders, no private account requests, no credentials, and no movement of funds.
+
 # Operating plan
 
 ## Production verification — 2026-11-27 07:00 UTC
