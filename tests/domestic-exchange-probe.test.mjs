@@ -13,8 +13,8 @@ test("sell-book walk estimates quote proceeds across bid levels", () => {
   assert.equal(result.canFillReferenceQuantity, true);
   assert.equal(result.bestBid, 100);
   assert.equal(result.bestAsk, 101);
-  assert.equal(result.estimatedGrossUsdt, 0.003277);
-  assert.equal(result.estimatedVwap, 0.003277 / 0.000033);
+  assert.ok(Math.abs(result.estimatedGrossUsdt - 0.003277) < 1e-12);
+  assert.ok(Math.abs(result.estimatedVwap - (0.003277 / 0.000033)) < 1e-9);
 });
 
 test("missing book fails closed", () => {
