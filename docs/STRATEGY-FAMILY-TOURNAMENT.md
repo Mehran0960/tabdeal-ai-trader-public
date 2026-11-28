@@ -38,5 +38,6 @@ All families may hold USDT cash when no eligible asset exists. None uses leverag
 - The dynamic collector covers only active Tabdeal/Binance cross-listed USDT Spot markets, up to 200 by discovery liquidity. It does not cover IRT markets or Tabdeal-only markets.
 - Binance candle prices are not Tabdeal executable quotes.
 - Historical order-book replay, account-specific fees, fee rebates, partial fills and latency are not included in this screen.
+- Early-closed exchange candles are excluded individually. Their missing interval remains a gap; the engine never fabricates or forward-fills an OHLC candle. The cross-market tournament still requires a sufficiently long synchronized contiguous segment.
 - The model is a research comparison, not a forecast or expected daily return.
 - No private account data or credentials are read; no exchange orders are submitted; no funds move; live trading and Paper trading remain disabled by this tournament.
