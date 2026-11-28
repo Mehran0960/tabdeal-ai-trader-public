@@ -4,7 +4,6 @@ export const TABDEAL_SELL_SYMBOL = "BTCUSDT";
 export const TABDEAL_SELL_MAX_SPREAD_BPS = 30;
 export const TABDEAL_SELL_MAX_SLIPPAGE_BPS = 50;
 const API_BASE = "https://api1.tabdeal.org";
-const RECV_WINDOW_MS = 5_000;
 const DECIMAL = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const CLIENT_ORDER_ID = /^[A-Za-z0-9._-]{1,36}$/;
 
@@ -366,13 +365,13 @@ async function signedGet(path, params, apiKey, apiSecret, fetchImpl) {
 function isOrderNotFound(response, data) {
   return response.status === 404 && isRecord(data) && Number(data.code) === 1204;
 }
-async function lookupOrder(clientId, apiKey, apiSecret, fetchImpl) {
+async function lookupOrder(clientId, apiKey, apiSecret, fetchImpl, orderType = "LIMIT") {
   const {response, data} = await signedGet("/order", {
     symbol: TABDEAL_SELL_SYMBOL, origClientOrderId: clientId
   }, apiKey, apiSecret, fetchImpl);
   if (isOrderNotFound(response, data)) return null;
   if (!response.ok) fail("tabdeal_sell_order_lookup_unresolved_http_" + response.status);
-  const order = normalizedOrder(data, clientId, "LIMIT");
+  const order = normalizedOrder(data, clientId, orderType);
   if (!order) fail("tabdeal_sell_order_lookup_schema_invalid");
   return order;
 }
@@ -498,7 +497,7 @@ export async function runTabdealSellAllBtc({
 
   let priorOrder;
   try {
-    priorOrder = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl);
+    priorOrder = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType);
   } catch (error) {
     return {...base, result: "pre_submit_order_lookup_failed_halt",
       reason: String(error?.message || error).slice(0, 180), preflight, clientOrderId};
@@ -530,7 +529,7 @@ export async function runTabdealSellAllBtc({
     }));
   } catch {
     try {
-      const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl);
+      const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType);
       if (reconciled) return {
         ...base, result: "sell_reconciled_after_uncertain_post",
         preflight, clientOrderId, order: reconciled, ordersSubmitted: true
@@ -544,7 +543,7 @@ export async function runTabdealSellAllBtc({
   if (!postResponse.ok) {
     if (postResponse.status >= 500) {
       try {
-        const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl);
+        const reconciled = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType);
         if (reconciled) return {
           ...base, result: "sell_reconciled_after_server_error",
           httpStatus: postResponse.status, preflight, clientOrderId,
@@ -564,7 +563,7 @@ export async function runTabdealSellAllBtc({
   }
   let order = normalizedOrder(postData, clientOrderId, orderType);
   if (!order) {
-    try { order = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl); } catch { order = null; }
+    try { order = await lookupOrder(clientOrderId, apiKey, apiSecret, fetchImpl, orderType); } catch { order = null; }
   }
   if (!order) {
     return {...base, result: "sell_accepted_response_unreconciled_halt",
