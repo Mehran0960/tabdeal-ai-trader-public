@@ -33,7 +33,8 @@ function fixture() {
     market("BTCUSDT", "BTC"), market("ETHUSDT", "ETH"),
     market("SOLUSDT", "SOL"), market("XRPUSDT", "XRP"),
     market("DOGEUSDT", "DOGE"), market("FOOUPUSDT", "FOOUP"),
-    market("USDCUSDT", "USDC")
+    market("USDCUSDT", "USDC"),
+    market("RESTRICTEDUSDT", "RESTRICTED", { permissions: [], permissionSets: [["SPOT"], ["TRD_GRP_999"]] })
   ] };
   const binanceTickers24h = [
     { symbol: "BTCUSDT", quoteVolume: "1000000000", count: 100000, lastPrice: "90000" },
