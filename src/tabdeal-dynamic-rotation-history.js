@@ -126,7 +126,7 @@ export async function runTabdealDynamicRotationHistoryCapture({
   // All data requests are public GETs. No user account endpoints or credentials.
   const [tabdealInfo,binanceInfo,binanceTickers]=await Promise.all([
     getJson(buildUrl(tabdealBase,"/exchangeInfo"),fetchOptions),
-    getJson(buildUrl(binanceBase,"/api/v3/exchangeInfo"),fetchOptions),
+    getJson(buildUrl(binanceBase,"/api/v3/exchangeInfo",{permissions:"SPOT"}),fetchOptions),
     getJson(buildUrl(binanceBase,"/api/v3/ticker/24hr"),fetchOptions)
   ]);
   if(!Array.isArray(tabdealInfo)||!isRecord(binanceInfo)||!Array.isArray(binanceInfo.symbols)||

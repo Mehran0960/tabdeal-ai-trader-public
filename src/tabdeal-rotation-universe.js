@@ -16,6 +16,16 @@ const record = value => value !== null && typeof value === "object" && !Array.is
 const positive = value => Number.isFinite(Number(value)) && Number(value) > 0;
 const nonNegative = value => Number.isFinite(Number(value)) && Number(value) >= 0;
 
+function hasSpotPermission(market) {
+  const sets = market?.permissionSets;
+  if (Array.isArray(sets) && sets.length > 0) {
+    // Binance permissionSets are ANDed across sets; require SPOT in every
+    // set rather than accidentally admitting trade-group-restricted symbols.
+    return sets.every(group => Array.isArray(group) && group.includes("SPOT"));
+  }
+  return Array.isArray(market?.permissions) && market.permissions.includes("SPOT");
+}
+
 function indexMarkets(rows, provider) {
   if (!Array.isArray(rows)) throw new Error("rotation_universe_" + provider + "_markets_invalid");
   const bySymbol = new Map();
@@ -116,7 +126,7 @@ export function buildTabdealRotationUniverse({
   for (const symbol of commonTabdeal) {
     const local = tabdeal.bySymbol.get(symbol);
     if (local.status !== "TRADING" || local.isSpotTradingAllowed !== true ||
-        !Array.isArray(local.permissions) || !local.permissions.includes("SPOT") ||
+        !hasSpotPermission(local) ||
         String(local.quoteAsset || "").toUpperCase() !== "USDT") {
       excluded.tabdealInactiveOrNonSpot++;
       continue;
@@ -127,7 +137,7 @@ export function buildTabdealRotationUniverse({
       continue;
     }
     if (remote.status !== "TRADING" || remote.isSpotTradingAllowed !== true ||
-        !Array.isArray(remote.permissions) || !remote.permissions.includes("SPOT") ||
+        !hasSpotPermission(remote) ||
         String(remote.quoteAsset || "").toUpperCase() !== "USDT" ||
         String(remote.baseAsset || "").toUpperCase() !== String(local.baseAsset || "").toUpperCase()) {
       excluded.binanceInactiveOrNonSpot++;
