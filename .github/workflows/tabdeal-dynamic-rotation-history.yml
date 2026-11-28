@@ -45,7 +45,7 @@ jobs:
           node scripts/collect-tabdeal-dynamic-rotation-history.mjs \
             --history-dir signal-history/data/international-market-history \
             --state-dir signal-history/data/dynamic-tabdeal-rotation-universe \
-            --max-markets 200 \
+            --max-markets 300 \
             --backfill-days 730 \
             --output artifacts/tabdeal-dynamic-rotation-history/latest.json
       - name: Upload sanitized capture report
