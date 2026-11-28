@@ -78,7 +78,8 @@ test("excludes missing cross-listings, stablecoin bases, leveraged tokens, and i
   const result = buildTabdealRotationUniverse(input);
   assert.ok(!result.markets.some(row => ["USDCUSDT", "FOOUPUSDT", "BADUSDT", "LOCALUSDT"].includes(row.symbol)));
   assert.equal(result.excluded.invalidMarketRules, 1);
-  assert.equal(result.excluded.binanceInactiveOrNonSpot, 1);
+  assert.equal(result.excluded.tabdealInactiveOrNonSpot, 1);
+  assert.equal(result.excluded.binanceInactiveOrNonSpot, 0);
   assert.equal(result.excluded.missingOnBinance, 1);
 });
 
