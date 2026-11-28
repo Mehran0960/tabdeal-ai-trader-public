@@ -169,7 +169,7 @@ export function normalizeStrategyTournamentHistory(rows,{nowMs=Date.now(),symbol
   return {available:true,symbols:selectedSymbols,candlesBySymbol,
     alignedBars:common.length,latestContiguousBars:latest.length,
     latestClosedAt:new Date(latestClosedAtMs).toISOString(),latestAgeMs,
-    ignoredRecordCount,duplicateCount,
+    ignoredRecordCount,duplicateCount,excludedIncompleteCandleCount,excludedIncompleteBySymbol,
     perSymbolBars:Object.fromEntries(selectedSymbols.map(symbol=>[symbol,bySymbol.get(symbol).size]))};
 }
 
