@@ -44,7 +44,7 @@ jobs:
           TABDEAL_API_KEY: ${{ secrets.TABDEAL_API_KEY }}
           TABDEAL_API_SECRET: ${{ secrets.TABDEAL_API_SECRET }}
           TABDEAL_SELL_MODE: dry_run
-          TABDEAL_SELL_ORDER_TYPE: ${{ inputs.order_type || 'MARKET' }}
+          TABDEAL_SELL_ORDER_TYPE: ${{ inputs.order_type || 'LIMIT' }}
           TABDEAL_SELL_CONFIRM: "false"
           TABDEAL_SELL_CONFIRM_QUANTITY: ""
         run: node scripts/tabdeal-sell-all-btc.mjs
