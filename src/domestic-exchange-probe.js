@@ -93,15 +93,15 @@ function getFilter(market, name) {
     : null;
 }
 
-function assessExir(payloads, book, trades) {
+function assessExir(payloads, book, trades, referenceQuantityBtc = REFERENCE_BTC_QUANTITY) {
   const pair = payloads.constants?.pairs?.["btc-usdt"] ?? null;
   const ticker = payloads.ticker;
   const tradeRows = trades?.["btc-usdt"];
-  const execution = estimateSellBook(exirBook(book));
+  const execution = estimateSellBook(exirBook(book), referenceQuantityBtc);
   const minBaseQty = positive(pair?.min_size);
   const step = positive(pair?.increment_size);
   const bestBid = execution.bestBid;
-  const estimatedReferenceNotional = bestBid ? bestBid * Number(REFERENCE_BTC_QUANTITY) : null;
+  const estimatedReferenceNotional = bestBid ? bestBid * Number(referenceQuantityBtc) : null;
   const minBaseNotional = minBaseQty && bestBid ? minBaseQty * bestBid : null;
   return {
     provider: "Exir",
@@ -116,7 +116,7 @@ function assessExir(payloads, book, trades) {
     referenceQuantityEstimatedNotionalUsdt: estimatedReferenceNotional,
     referenceQuantityMeetsKnownMinimum: minBaseQty === null
       ? null
-      : Number(REFERENCE_BTC_QUANTITY) >= minBaseQty,
+      : Number(referenceQuantityBtc) >= minBaseQty,
     tickSize: positive(pair?.increment_price),
     tickerLast: positive(ticker?.last ?? ticker?.close),
     tickerTimestamp: ticker?.timestamp ?? null,
@@ -133,15 +133,15 @@ function assessExir(payloads, book, trades) {
   };
 }
 
-function assessWallex(payloads, spotBook, otcBook) {
+function assessWallex(payloads, spotBook, otcBook, referenceQuantityBtc = REFERENCE_BTC_QUANTITY) {
   const spotMarket = payloads.markets?.result?.symbols?.BTCUSDT ?? null;
   const otcMarket = payloads.otcMarkets?.result?.symbols?.BTCUSDT ?? null;
-  const spotBookAssessment = estimateSellBook(wallexBook(spotBook));
-  const otcBookAssessment = estimateSellBook(wallexBook(otcBook ?? spotBook));
+  const spotBookAssessment = estimateSellBook(wallexBook(spotBook), referenceQuantityBtc);
+  const otcBookAssessment = estimateSellBook(wallexBook(otcBook ?? spotBook), referenceQuantityBtc);
   const minSpotNotional = positive(spotMarket?.minNotional);
   const minOtcNotional = positive(otcMarket?.minNotional);
   const bestBid = spotBookAssessment.bestBid;
-  const referenceNotional = bestBid ? bestBid * Number(REFERENCE_BTC_QUANTITY) : null;
+  const referenceNotional = bestBid ? bestBid * Number(referenceQuantityBtc) : null;
   const minQty = positive(spotMarket?.minQty);
   return {
     provider: "Wallex",
@@ -156,7 +156,7 @@ function assessWallex(payloads, spotBook, otcBook) {
       referenceQuantityEstimatedNotionalUsdt: referenceNotional,
       referenceQuantityMeetsKnownMinimum: minQty === null || referenceNotional === null
         ? null
-        : Number(REFERENCE_BTC_QUANTITY) >= minQty && referenceNotional >= minSpotNotional,
+        : Number(referenceQuantityBtc) >= minQty && referenceNotional >= minSpotNotional,
       book: spotBookAssessment
     },
     otc: {
@@ -187,7 +187,7 @@ function assessWallex(payloads, spotBook, otcBook) {
   };
 }
 
-function assessTabdeal(payloads, depth) {
+function assessTabdeal(payloads, depth, referenceQuantityBtc = REFERENCE_BTC_QUANTITY) {
   const markets = Array.isArray(payloads.exchangeInfo) ? payloads.exchangeInfo : [];
   const market = markets.find(item =>
     isRecord(item) &&
@@ -197,10 +197,10 @@ function assessTabdeal(payloads, depth) {
   ) ?? null;
   const lot = getFilter(market, "MARKET_LOT_SIZE") ?? getFilter(market, "LOT_SIZE");
   const notional = getFilter(market, "NOTIONAL") ?? getFilter(market, "MIN_NOTIONAL");
-  const book = estimateSellBook(tabdealBook(depth));
+  const book = estimateSellBook(tabdealBook(depth), referenceQuantityBtc);
   const minBase = positive(lot?.minQty);
   const minQuote = positive(notional?.minNotional);
-  const referenceNotional = book.bestBid ? book.bestBid * Number(REFERENCE_BTC_QUANTITY) : null;
+  const referenceNotional = book.bestBid ? book.bestBid * Number(referenceQuantityBtc) : null;
   return {
     provider: "Tabdeal",
     market: "BTCUSDT",
@@ -213,7 +213,7 @@ function assessTabdeal(payloads, depth) {
     referenceQuantityEstimatedNotionalUsdt: referenceNotional,
     referenceQuantityMeetsKnownMinimum: minBase === null || referenceNotional === null
       ? null
-      : Number(REFERENCE_BTC_QUANTITY) >= minBase &&
+      : Number(referenceQuantityBtc) >= minBase &&
         (minQuote === null || referenceNotional >= minQuote),
     book,
     api: {
@@ -294,17 +294,17 @@ export async function runDomesticExchangeProbe({
     constants: exirResults.constants.ok ? exirResults.constants.payload : null,
     ticker: exirResults.ticker.ok ? exirResults.ticker.payload : null
   }, exirResults.orderbook.ok ? exirResults.orderbook.payload : null,
-  exirResults.trades.ok ? exirResults.trades.payload : null);
+  exirResults.trades.ok ? exirResults.trades.payload : null, referenceQuantityBtc);
 
   const wallex = assessWallex({
     markets: wallexResults.markets.ok ? wallexResults.markets.payload : null,
     otcMarkets: wallexResults.otcMarkets.ok ? wallexResults.otcMarkets.payload : null,
     trades: wallexResults.trades.ok ? wallexResults.trades.payload : null
-  }, wallexResults.depth.ok ? wallexResults.depth.payload : null);
+  }, wallexResults.depth.ok ? wallexResults.depth.payload : null, null, referenceQuantityBtc);
 
   const tabdeal = assessTabdeal({
     exchangeInfo: tabdealResults.exchangeInfo.ok ? tabdealResults.exchangeInfo.payload : null
-  }, tabdealResults.depth.ok ? tabdealResults.depth.payload : null);
+  }, tabdealResults.depth.ok ? tabdealResults.depth.payload : null, referenceQuantityBtc);
 
   const providers = [
     { ...exir, endpointChecks: callSummary(exirResults) },
